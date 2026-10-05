@@ -17,6 +17,9 @@ export const ENEMY_HP = 700;
 export const ENEMY_DAMAGE = 80;
 export const KILL_GOAL = 3;
 
+// Crates
+export const CRATE_HP = 1500;
+
 // Bot AI
 export const VISION_RADIUS = 12;
 export const CHAT_TRIGGER_DIST = 3.5;
