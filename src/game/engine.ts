@@ -205,7 +205,7 @@ const KILL_GOAL = 3;
 const PITCH = Math.PI / 3;
 const YAW = Math.PI / 4;
 const CAM_DIST = 35;
-const CAM_VIEW_HEIGHT = 28;
+const CAM_VIEW_HEIGHT = 18;
 
 const ENEMY_DEFS = [{ x: 0, z: 35, color: 0xff4d4d, name: "Bot Shelly" }];
 
