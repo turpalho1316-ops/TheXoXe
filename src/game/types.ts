@@ -67,6 +67,7 @@ export type WorldSnapshot = {
 };
 
 export type BotState = "patrol" | "idle" | "chat" | "chase";
+export type PetState = "follow" | "attack" | "dead";
 
 export type Character = {
   group: THREE.Group;
@@ -83,7 +84,12 @@ export type Character = {
 export type Pet = {
   group: THREE.Group;
   body: Matter.Body;
+  hp: number;
+  maxHp: number;
+  hpBar: THREE.Sprite;
+  state: PetState;
   targetEnemyId: string | null;
+  lastAttackerId: string | null;
   lastBiteAt: number;
   walkPhase: number;
   tail: THREE.Object3D;
@@ -93,6 +99,7 @@ export type Pet = {
   legBL: THREE.Object3D;
   legBR: THREE.Object3D;
   shadow: THREE.Mesh;
+  alive: boolean;
 };
 
 export type Projectile = {
@@ -142,6 +149,8 @@ export type Enemy = {
   bubbleUntil: number;
   monologueNextAt: number;
   spottedSpoken: boolean;
+  // Pet aggro
+  targetPet: boolean;
 };
 
 export type Obstacle = {
@@ -216,6 +225,7 @@ export type AIContext = {
   inBush: boolean;
   destroyed: boolean;
   sound: import("./sound").SoundEngine;
+  pet: Pet | null;
   fireEnemyProjectile: (e: Enemy, dir: THREE.Vector2) => void;
   animateCharacter: (c: Character, speed: number, dt: number) => void;
   showBubbleFor: (e: Enemy, text: string) => void;
