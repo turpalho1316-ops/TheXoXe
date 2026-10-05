@@ -2,6 +2,8 @@ import * as THREE from "three";
 import Matter from "matter-js";
 import type { DialogueLine } from "./bots_dialogues";
 
+export type MapType = "day" | "night";
+
 export type GameStatus = "playing" | "victory" | "defeat";
 
 export type EngineState = {
@@ -33,7 +35,7 @@ export type EngineCallbacks = {
 
 export type EntitySnapshot = {
   id: string;
-  kind: "player" | "bot";
+  kind: "player" | "bot" | "pet";
   name: string;
   color: number;
   x: number;
@@ -76,6 +78,21 @@ export type Character = {
   legR: THREE.Object3D;
   shadow: THREE.Mesh;
   walkPhase: number;
+};
+
+export type Pet = {
+  group: THREE.Group;
+  body: Matter.Body;
+  targetEnemyId: string | null;
+  lastBiteAt: number;
+  walkPhase: number;
+  tail: THREE.Object3D;
+  head: THREE.Object3D;
+  legL: THREE.Object3D;
+  legR: THREE.Object3D;
+  legBL: THREE.Object3D;
+  legBR: THREE.Object3D;
+  shadow: THREE.Mesh;
 };
 
 export type Projectile = {
