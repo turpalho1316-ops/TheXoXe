@@ -26,6 +26,13 @@ jobs:
       - name: Build web app
         run: npm run build
 
+      - name: Verify public assets
+        run: |
+          echo "=== public folder ==="
+          ls -la public/ || echo "no public"
+          echo "=== dist/models ==="
+          ls -la dist/models/ || echo "no dist/models"
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
