@@ -3,6 +3,7 @@ import nipplejs from "nipplejs";
 import { Engine, type EngineState } from "./engine";
 import LoginScreen from "./LoginScreen";
 import HUD, { type KillFeedEntry } from "./HUD";
+import type { MapType } from "./types";
 
 const KILL_FEED_TTL_MS = 2500;
 
@@ -27,6 +28,7 @@ export default function Game() {
 
   const [started, setStarted] = useState(false);
   const [playerName, setPlayerName] = useState("");
+  const [mapType, setMapType] = useState<MapType>("day");
   const [killFeed, setKillFeed] = useState<KillFeedEntry[]>([]);
   const [hudState, setHudState] = useState<EngineState>({
     hp: 9000,
@@ -56,7 +58,7 @@ export default function Game() {
     if (!started) return;
     if (!containerRef.current) return;
 
-    const engine = new Engine(containerRef.current, playerName, {
+    const engine = new Engine(containerRef.current, playerName, mapType, {
       onStateChange: (s) => setHudState(s),
       onKill: (ev) => {
         const at = performance.now();
@@ -129,10 +131,11 @@ export default function Game() {
       for (const t of killTimersRef.current) clearTimeout(t);
       killTimersRef.current.clear();
     };
-  }, [started, playerName]);
+  }, [started, playerName, mapType]);
 
-  const handleStart = (name: string) => {
+  const handleStart = (name: string, map: MapType) => {
     setPlayerName(name);
+    setMapType(map);
     setStarted(true);
   };
 
