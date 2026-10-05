@@ -39,6 +39,12 @@ jobs:
       - name: Add Capacitor Android
         run: npx cap add android
 
+      - name: Force landscape orientation
+        run: |
+          sed -i 's|android:name=".MainActivity"|android:name=".MainActivity" android:screenOrientation="landscape"|' android/app/src/main/AndroidManifest.xml
+          echo "=== AndroidManifest after patch ==="
+          cat android/app/src/main/AndroidManifest.xml
+
       - name: Sync Capacitor
         run: npx cap sync android
 
