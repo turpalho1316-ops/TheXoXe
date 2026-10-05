@@ -7,6 +7,13 @@ import {
   createDamageNumberTexture,
 } from "./textures";
 import { SoundEngine } from "./sound";
+import {
+  createSpeechBubbleTexture,
+  pickDialogue,
+  pickMonologue,
+  pickSpottedLine,
+  type DialogueLine,
+} from "./bots_dialogues";
 
 export type GameStatus = "playing" | "victory" | "defeat";
 
@@ -70,6 +77,8 @@ export type WorldSnapshot = {
   projectiles: ProjectileSnapshot[];
 };
 
+type BotState = "patrol" | "idle" | "chat" | "chase";
+
 type Character = {
   group: THREE.Group;
   body: THREE.Mesh;
@@ -114,6 +123,25 @@ type Enemy = {
   destroyed: boolean;
   strafeDir: number;
   strafeUntil: number;
+  // NPC-поля
+  state: BotState;
+  stateUntil: number;
+  visionRadius: number;
+  patrolPoints: { x: number; z: number }[];
+  patrolIdx: number;
+  visionRing: THREE.Mesh;
+  // чат
+  chatPartnerId: string | null;
+  chatDialogue: DialogueLine[] | null;
+  chatLineIdx: number;
+  chatNextLineAt: number;
+  chatCooldownUntil: number;
+  // пузырь
+  bubble: THREE.Sprite | null;
+  bubbleUntil: number;
+  // поведение
+  monologueNextAt: number;
+  spottedSpoken: boolean;
 };
 
 type Obstacle = {
@@ -193,7 +221,12 @@ const AIM_LENGTH = 26;
 const AIM_WIDTH = 2;
 
 const ENEMY_CHASE_SPEED = 14 * 0.9;
+const ENEMY_PATROL_SPEED = 8;
 const ENEMY_BACK_SPEED = 10 * 0.9;
+
+const VISION_RADIUS = 8;
+const CHAT_TRIGGER_DIST = 3.2;
+const CHAT_LINE_DURATION = 2.0;
 
 const CRATE_HP = 1500;
 const PLAYER_DAMAGE = 220;
@@ -208,7 +241,64 @@ const YAW = Math.PI / 4;
 const CAM_DIST = 35;
 const CAM_VIEW_HEIGHT = 18;
 
-const ENEMY_DEFS = [{ x: 0, z: 35, color: 0xff4d4d, name: "Bot Shelly" }];
+type BotDef = {
+  name: string;
+  color: number;
+  x: number;
+  z: number;
+  patrol: { x: number; z: number }[];
+};
+
+const ENEMY_DEFS: BotDef[] = [
+  {
+    name: "Якарь",
+    color: 0xff9933,
+    x: 0,
+    z: 35,
+    patrol: [
+      { x: -15, z: 30 },
+      { x: -15, z: 45 },
+      { x: 10, z: 45 },
+      { x: 10, z: 28 },
+    ],
+  },
+  {
+    name: "Веин",
+    color: 0x4d7a3a,
+    x: -18,
+    z: 0,
+    patrol: [
+      { x: -20, z: -15 },
+      { x: -20, z: 15 },
+      { x: -10, z: 15 },
+      { x: -10, z: -15 },
+    ],
+  },
+  {
+    name: "Философ",
+    color: 0x8a4dbb,
+    x: 18,
+    z: 0,
+    patrol: [
+      { x: 20, z: -15 },
+      { x: 20, z: 15 },
+      { x: 10, z: 15 },
+      { x: 10, z: -15 },
+    ],
+  },
+  {
+    name: "Патриций",
+    color: 0xe8c84a,
+    x: 0,
+    z: -35,
+    patrol: [
+      { x: -15, z: -30 },
+      { x: -15, z: -45 },
+      { x: 15, z: -45 },
+      { x: 15, z: -28 },
+    ],
+  },
+];
 
 const CRATE_DEFS: { x: number; z: number }[] = [
   { x: 5, z: -10 },
@@ -597,94 +687,235 @@ private setupAimOverlay() {
   this.aimMesh = mesh;
 }
 
-private buildCharacter(accentColor: number): Character {
+// === Универсальный конструктор персонажей ===
+// style: 'player' | 'yakkar' | 'vein' | 'philosoph' | 'patriciy'
+private buildCharacter(
+  accentColor: number,
+  style: string = "player",
+): Character {
   const group = new THREE.Group();
 
-  const matBody = new THREE.MeshStandardMaterial({
-    color: 0x33373d,
-    roughness: 0.55,
-    metalness: 0.3,
-  });
+  // Базовые материалы
   const matLimb = new THREE.MeshStandardMaterial({
-    color: 0x2c2f35,
+    color: 0x1e2126,
     roughness: 0.7,
   });
   const matBoot = new THREE.MeshStandardMaterial({
-    color: 0x141518,
+    color: 0x0e1014,
     roughness: 0.55,
   });
-  const matHood = new THREE.MeshStandardMaterial({
-    color: 0x24272d,
-    roughness: 0.9,
-    side: THREE.DoubleSide,
-  });
   const matHead = new THREE.MeshStandardMaterial({
-    color: 0x16181b,
+    color: 0x111317,
     roughness: 0.6,
   });
-  const matVoid = new THREE.MeshBasicMaterial({ color: 0x000000 });
-  matVoid.userData.skipOpacity = true;
-  const matEye = new THREE.MeshStandardMaterial({
-    color: 0x6cf0ff,
-    emissive: 0x6cf0ff,
-    emissiveIntensity: 4.0,
-  });
-  matEye.userData.skipOpacity = true;
   const matAccent = new THREE.MeshStandardMaterial({
     color: accentColor,
     emissive: accentColor,
-    emissiveIntensity: 0.45,
+    emissiveIntensity: 0.55,
     roughness: 0.4,
   });
 
+  // Параметры по стилю
+  let bodyW = 1.0;
+  let bodyH = 1.55;
+  let bodyColor = 0x33373d;
+  let headSize = 0.3;
+  let eyeColor = 0x6cf0ff;
+  let eyeSize = 0.06;
+  let eyeCount = 2;
+  let headgear: "cone" | "helmet" | "hood" | "cap" | "jester" = "hood";
+  let hasCape = false;
+  let hasBackpack = false;
+  let hasStaff = false;
+
+  if (style === "player") {
+    // будет скрыт при загрузке GLB, но пусть выглядит нормально
+    bodyW = 1.0;
+    bodyH = 1.55;
+    bodyColor = 0x33373d;
+    eyeColor = 0x6cf0ff;
+    headgear = "hood";
+  } else if (style === "yakkar") {
+    // Якарь — шут, приземистый
+    bodyW = 1.2;
+    bodyH = 1.35;
+    bodyColor = 0x4a2b16;
+    eyeColor = 0xffc857;
+    eyeSize = 0.08;
+    headgear = "jester";
+  } else if (style === "vein") {
+    // Веин — военный, подтянутый, широкоплечий
+    bodyW = 1.15;
+    bodyH = 1.55;
+    bodyColor = 0x2a3d24;
+    eyeColor = 0x88ff66;
+    eyeSize = 0.05;
+    headgear = "helmet";
+  } else if (style === "philosoph") {
+    // Философ — высокий и тонкий
+    bodyW = 0.75;
+    bodyH = 1.95;
+    bodyColor = 0x2e1d42;
+    eyeColor = 0xffffff;
+    eyeSize = 0.08;
+    eyeCount = 1;
+    headgear = "hood";
+    hasCape = true;
+    hasStaff = true;
+  } else if (style === "patriciy") {
+    // Патриций — низкий, сутулый, испуганный
+    bodyW = 0.9;
+    bodyH = 1.35;
+    bodyColor = 0x5a4a15;
+    eyeColor = 0xfff18a;
+    eyeSize = 0.13;
+    headgear = "cap";
+    hasBackpack = true;
+  }
+
+  const matBody = new THREE.MeshStandardMaterial({
+    color: bodyColor,
+    roughness: 0.55,
+    metalness: 0.25,
+  });
+
+  // Торс
   const bodyGeo = new THREE.SphereGeometry(0.42, 16, 16);
-  bodyGeo.scale(1.0, 1.55, 0.85);
+  bodyGeo.scale(bodyW, bodyH, bodyW * 0.85);
   const torso = new THREE.Mesh(bodyGeo, matBody);
   torso.position.y = 1.1;
   torso.castShadow = true;
   torso.receiveShadow = true;
   group.add(torso);
 
-  const beltGeo = new THREE.TorusGeometry(0.46, 0.07, 8, 20);
+  // Пояс-акцент
+  const beltGeo = new THREE.TorusGeometry(0.46 * bodyW, 0.07, 8, 20);
   const belt = new THREE.Mesh(beltGeo, matAccent);
   belt.position.y = 0.78;
   belt.rotation.x = Math.PI / 2;
   group.add(belt);
 
+  // Голова
+  const headY = 2.02 + (bodyH - 1.55) * 0.4;
   const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.30, 16, 16),
+    new THREE.SphereGeometry(headSize, 16, 16),
     matHead,
   );
-  head.position.y = 2.02;
+  head.position.y = headY;
   head.castShadow = true;
   group.add(head);
 
-  const hoodGeo = new THREE.ConeGeometry(0.55, 0.95, 18, 1, true);
-  const hood = new THREE.Mesh(hoodGeo, matHood);
-  hood.position.y = 2.18;
-  hood.castShadow = true;
-  group.add(hood);
+  // Головной убор — разный по стилю
+  if (headgear === "cone") {
+    const hoodGeo = new THREE.ConeGeometry(0.55, 0.95, 18, 1, true);
+    const hood = new THREE.Mesh(hoodGeo, matBody);
+    hood.position.y = headY + 0.16;
+    hood.castShadow = true;
+    group.add(hood);
+  } else if (headgear === "hood") {
+    const hoodGeo = new THREE.ConeGeometry(
+      style === "philosoph" ? 0.5 : 0.55,
+      style === "philosoph" ? 1.4 : 0.95,
+      18,
+      1,
+      true,
+    );
+    const hood = new THREE.Mesh(hoodGeo, matBody);
+    hood.position.y = headY + (style === "philosoph" ? 0.4 : 0.16);
+    hood.castShadow = true;
+    group.add(hood);
+  } else if (headgear === "helmet") {
+    const helmetGeo = new THREE.SphereGeometry(0.42, 16, 16, 0, Math.PI * 2, 0, Math.PI / 1.7);
+    const helmet = new THREE.Mesh(helmetGeo, matBody);
+    helmet.position.y = headY + 0.1;
+    helmet.castShadow = true;
+    group.add(helmet);
+    // козырёк
+    const visorGeo = new THREE.BoxGeometry(0.55, 0.05, 0.4);
+    const visor = new THREE.Mesh(visorGeo, matAccent);
+    visor.position.set(0, headY + 0.18, 0.32);
+    visor.rotation.x = -0.25;
+    group.add(visor);
+  } else if (headgear === "cap") {
+    const capGeo = new THREE.CylinderGeometry(0.35, 0.38, 0.28, 16);
+    const cap = new THREE.Mesh(capGeo, matBody);
+    cap.position.y = headY + 0.28;
+    cap.castShadow = true;
+    group.add(cap);
+  } else if (headgear === "jester") {
+    // Шутовской колпак — три конуса
+    for (let i = 0; i < 3; i++) {
+      const coneGeo = new THREE.ConeGeometry(0.16, 0.85, 10);
+      const cone = new THREE.Mesh(coneGeo, matAccent);
+      const ang = (i - 1) * 0.6;
+      cone.position.set(
+        Math.sin(ang) * 0.18,
+        headY + 0.55,
+        Math.cos(ang) * 0.08 - 0.1,
+      );
+      cone.rotation.z = Math.sin(ang) * 0.5;
+      cone.rotation.x = -0.15;
+      cone.castShadow = true;
+      group.add(cone);
+      // бубенчик
+      const bellGeo = new THREE.SphereGeometry(0.08, 8, 8);
+      const bell = new THREE.Mesh(
+        bellGeo,
+        new THREE.MeshStandardMaterial({
+          color: 0xffd54a,
+          emissive: 0xffd54a,
+          emissiveIntensity: 0.9,
+        }),
+      );
+      bell.position.set(
+        Math.sin(ang) * 0.4,
+        headY + 0.95,
+        Math.cos(ang) * 0.1 - 0.1,
+      );
+      group.add(bell);
+    }
+  }
 
-  const innerVoid = new THREE.Mesh(
-    new THREE.SphereGeometry(0.34, 12, 12),
-    matVoid,
-  );
-  innerVoid.position.set(0, 2.04, -0.04);
-  group.add(innerVoid);
+  // Глаза — разное количество и размер
+  const eyeGeo = new THREE.SphereGeometry(eyeSize, 10, 10);
+  const matEye = new THREE.MeshStandardMaterial({
+    color: eyeColor,
+    emissive: eyeColor,
+    emissiveIntensity: 4.0,
+  });
+  matEye.userData.skipOpacity = true;
+  if (eyeCount === 1) {
+    const eye = new THREE.Mesh(eyeGeo, matEye);
+    eye.position.set(0, headY + 0.02, 0.24);
+    group.add(eye);
+  } else {
+    const eyeL = new THREE.Mesh(eyeGeo, matEye);
+    eyeL.position.set(-0.11, headY + 0.02, 0.22);
+    group.add(eyeL);
+    const eyeR = new THREE.Mesh(eyeGeo, matEye);
+    eyeR.position.set(0.11, headY + 0.02, 0.22);
+    group.add(eyeR);
+  }
 
-  const eyeGeo = new THREE.SphereGeometry(0.06, 10, 10);
-  const eyeL = new THREE.Mesh(eyeGeo, matEye);
-  eyeL.position.set(-0.11, 2.04, 0.22);
-  group.add(eyeL);
-  const eyeR = new THREE.Mesh(eyeGeo, matEye);
-  eyeR.position.set(0.11, 2.04, 0.22);
-  group.add(eyeR);
-
-  const eyeLight = new THREE.PointLight(0x6cf0ff, 0.55, 2.6);
-  eyeLight.position.set(0, 2.04, 0.32);
+  // Свет глаз
+  const eyeLight = new THREE.PointLight(eyeColor, 0.6, 2.8);
+  eyeLight.position.set(0, headY + 0.02, 0.34);
   group.add(eyeLight);
 
-  const armUpperGeo = new THREE.CylinderGeometry(0.09, 0.10, 0.42, 8);
+  // Пустота в капюшоне (для hood/cone)
+  if (headgear === "hood" || headgear === "cone") {
+    const matVoid = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    matVoid.userData.skipOpacity = true;
+    const voidSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(headSize + 0.04, 12, 12),
+      matVoid,
+    );
+    voidSphere.position.set(0, headY + 0.02, -0.04);
+    group.add(voidSphere);
+  }
+
+  // Руки
+  const armUpperGeo = new THREE.CylinderGeometry(0.09, 0.1, 0.42, 8);
   const armLowerGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.4, 8);
   const buildArm = (side: 1 | -1): THREE.Group => {
     const arm = new THREE.Group();
@@ -700,45 +931,87 @@ private buildCharacter(accentColor: number): Character {
     return arm;
   };
   const armL = buildArm(1);
-  armL.position.set(-0.5, 1.5, 0);
+  armL.position.set(-0.5 * bodyW, 1.5, 0);
   armL.rotation.z = 0.18;
   group.add(armL);
   const armR = buildArm(-1);
-  armR.position.set(0.5, 1.5, 0);
+  armR.position.set(0.5 * bodyW, 1.5, 0);
   armR.rotation.z = -0.18;
   group.add(armR);
 
+  // Ноги
   const legGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.4, 8);
   const legL = new THREE.Mesh(legGeo, matLimb);
-  legL.position.set(-0.18, 0.55, 0);
+  legL.position.set(-0.18 * bodyW, 0.55, 0);
   legL.castShadow = true;
   group.add(legL);
   const legR = new THREE.Mesh(legGeo, matLimb);
-  legR.position.set(0.18, 0.55, 0);
+  legR.position.set(0.18 * bodyW, 0.55, 0);
   legR.castShadow = true;
   group.add(legR);
 
+  // Ботинки
   const bootGeo = new THREE.BoxGeometry(0.36, 0.28, 0.5);
   const bootL = new THREE.Mesh(bootGeo, matBoot);
-  bootL.position.set(-0.18, 0.16, 0.05);
+  bootL.position.set(-0.18 * bodyW, 0.16, 0.05);
   bootL.castShadow = true;
   bootL.receiveShadow = true;
   group.add(bootL);
   const bootR = new THREE.Mesh(bootGeo, matBoot);
-  bootR.position.set(0.18, 0.16, 0.05);
+  bootR.position.set(0.18 * bodyW, 0.16, 0.05);
   bootR.castShadow = true;
   bootR.receiveShadow = true;
   group.add(bootR);
 
+  // Плащ (для Философа)
+  if (hasCape) {
+    const capeGeo = new THREE.ConeGeometry(0.75, 1.9, 14, 1, true);
+    const cape = new THREE.Mesh(capeGeo, matBody);
+    cape.position.set(0, 1.1, -0.2);
+    cape.castShadow = true;
+    group.add(cape);
+  }
+
+  // Рюкзак (для Патриция)
+  if (hasBackpack) {
+    const packGeo = new THREE.BoxGeometry(0.55, 0.7, 0.35);
+    const pack = new THREE.Mesh(packGeo, matAccent);
+    pack.position.set(0, 1.25, -0.55);
+    pack.castShadow = true;
+    group.add(pack);
+  }
+
+  // Посох (для Философа)
+  if (hasStaff) {
+    const staffGeo = new THREE.CylinderGeometry(0.04, 0.04, 2.4, 8);
+    const staff = new THREE.Mesh(staffGeo, matLimb);
+    staff.position.set(0.62, 0.9, 0.15);
+    staff.rotation.z = -0.15;
+    staff.castShadow = true;
+    group.add(staff);
+    const orbGeo = new THREE.SphereGeometry(0.13, 12, 12);
+    const orb = new THREE.Mesh(
+      orbGeo,
+      new THREE.MeshStandardMaterial({
+        color: 0xcc88ff,
+        emissive: 0xcc88ff,
+        emissiveIntensity: 2.5,
+      }),
+    );
+    orb.position.set(0.72, 2.1, 0.15);
+    group.add(orb);
+    const orbLight = new THREE.PointLight(0xcc88ff, 0.8, 3.5);
+    orbLight.position.set(0.72, 2.1, 0.15);
+    group.add(orbLight);
+  }
+
+  // Тень
   const shadowMat = new THREE.MeshBasicMaterial({
     color: 0x000000,
     transparent: true,
     opacity: 0.32,
   });
-  const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.7, 24),
-    shadowMat,
-  );
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.7, 24), shadowMat);
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.01;
   group.add(shadow);
@@ -781,7 +1054,7 @@ private setCharacterOpacity(c: Character, opacity: number) {
 }
 
 private setupPlayer() {
-  const char = this.buildCharacter(0x3aa3ff);
+  const char = this.buildCharacter(0x3aa3ff, "player");
   this.playerChar = char;
   this.scene.add(char.group);
 
@@ -825,7 +1098,7 @@ private loadPlayerGLB() {
           m.receiveShadow = true;
         }
       });
-      model.scale.set(0.55, 0.55, 0.55);
+      model.scale.set(0.85, 0.85, 0.85);
       model.rotation.y = Math.PI;
       this.playerGLB = model;
       this.playerChar.group.add(model);
@@ -835,12 +1108,16 @@ private loadPlayerGLB() {
         this.playerActions[clip.name] = this.playerMixer.clipAction(clip);
       }
 
-      this.playerChar.body.visible = false;
-      this.playerChar.head.visible = false;
-      this.playerChar.armL.visible = false;
-      this.playerChar.armR.visible = false;
-      this.playerChar.legL.visible = false;
-      this.playerChar.legR.visible = false;
+      // ПОЛНОЕ скрытие старой фигурки одним проходом
+      const keep = new Set<THREE.Object3D>();
+      keep.add(this.playerHpBar);
+      keep.add(model);
+      keep.add(this.playerChar.shadow);
+      for (const child of [...this.playerChar.group.children]) {
+        if (!keep.has(child)) child.visible = false;
+      }
+      // shadow тоже оставляем видимой
+      this.playerChar.shadow.visible = true;
     },
     undefined,
     (err) => {
@@ -867,13 +1144,27 @@ private updatePlayerAnimation(speed: number, dt: number) {
     }
   }
 }
-
+  
 private spawnEnemies() {
-  ENEMY_DEFS.forEach((d) => this.spawnEnemy(d.x, d.z, d.color, d.name));
+  ENEMY_DEFS.forEach((d) =>
+    this.spawnEnemy(d.x, d.z, d.color, d.name, d.patrol),
+  );
 }
 
-private spawnEnemy(x: number, z: number, color: number, name: string) {
-  const char = this.buildCharacter(color);
+private spawnEnemy(
+  x: number,
+  z: number,
+  color: number,
+  name: string,
+  patrol: { x: number; z: number }[],
+) {
+  let style = "vein";
+  if (name === "Якарь") style = "yakkar";
+  else if (name === "Веин") style = "vein";
+  else if (name === "Философ") style = "philosoph";
+  else if (name === "Патриций") style = "patriciy";
+
+  const char = this.buildCharacter(color, style);
   char.group.position.set(x, 0, z);
   this.scene.add(char.group);
 
@@ -897,6 +1188,24 @@ private spawnEnemy(x: number, z: number, color: number, name: string) {
   });
   Matter.World.add(this.world, matterBody);
 
+  // Кольцо обзора
+  const visionGeo = new THREE.RingGeometry(
+    VISION_RADIUS - 0.15,
+    VISION_RADIUS,
+    48,
+  );
+  const visionMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.12,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const visionRing = new THREE.Mesh(visionGeo, visionMat);
+  visionRing.rotation.x = -Math.PI / 2;
+  visionRing.position.set(x, 0.03, z);
+  this.scene.add(visionRing);
+
   this.enemies.push({
     id: `b_${this.nextEntityId++}`,
     char,
@@ -912,6 +1221,21 @@ private spawnEnemy(x: number, z: number, color: number, name: string) {
     destroyed: false,
     strafeDir: Math.random() < 0.5 ? 1 : -1,
     strafeUntil: 0,
+    state: "patrol",
+    stateUntil: 0,
+    visionRadius: VISION_RADIUS,
+    patrolPoints: patrol,
+    patrolIdx: 0,
+    visionRing,
+    chatPartnerId: null,
+    chatDialogue: null,
+    chatLineIdx: 0,
+    chatNextLineAt: 0,
+    chatCooldownUntil: 0,
+    bubble: null,
+    bubbleUntil: 0,
+    monologueNextAt: performance.now() / 1000 + 4 + Math.random() * 6,
+    spottedSpoken: false,
   });
 }
 
@@ -1007,7 +1331,7 @@ private updateMouseAim(e: MouseEvent) {
   dir.normalize();
   this.mouseAimDir = dir;
 }
-  
+
 private rayToGround(worldPoint: THREE.Vector3): THREE.Vector3 | null {
   const camPos = this.camera.position.clone();
   const dir = worldPoint.clone().sub(camPos).normalize();
@@ -1210,6 +1534,39 @@ private removeProjectile(i: number) {
   this.projectiles.splice(i, 1);
 }
 
+private showBubbleFor(enemy: Enemy, text: string) {
+  // Убираем старый пузырь
+  if (enemy.bubble) {
+    enemy.char.group.remove(enemy.bubble);
+    enemy.bubble.material.map?.dispose();
+    enemy.bubble.material.dispose();
+    enemy.bubble = null;
+  }
+  const tex = createSpeechBubbleTexture(text);
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    transparent: true,
+    depthTest: false,
+  });
+  const sprite = new THREE.Sprite(mat);
+  const aspect = tex.image.width / tex.image.height;
+  const h = 0.8;
+  sprite.scale.set(h * aspect, h, 1);
+  sprite.position.y = 3.7;
+  enemy.char.group.add(sprite);
+  enemy.bubble = sprite;
+  enemy.bubbleUntil = this.clock.getElapsedTime() + CHAT_LINE_DURATION;
+}
+
+private clearBubble(enemy: Enemy) {
+  if (enemy.bubble) {
+    enemy.char.group.remove(enemy.bubble);
+    enemy.bubble.material.map?.dispose();
+    enemy.bubble.material.dispose();
+    enemy.bubble = null;
+  }
+}
+  
 private updatePlayer(dt: number) {
   const keyInput = new THREE.Vector2(0, 0);
   if (this.keys["KeyW"] || this.keys["ArrowUp"]) keyInput.y += 1;
@@ -1301,6 +1658,295 @@ private updateAimOverlay() {
   } else {
     this.aimMesh.visible = false;
   }
+}
+
+private canSeePlayer(enemy: Enemy): boolean {
+  if (this.destroyed) return false;
+  if (this.inBush) return false;
+  const dx = this.playerBody.position.x - enemy.body.position.x;
+  const dz = this.playerBody.position.y - enemy.body.position.y;
+  const d2 = dx * dx + dz * dz;
+  return d2 < enemy.visionRadius * enemy.visionRadius;
+}
+
+private updateEnemies(dt: number) {
+  const now = performance.now() / 1000;
+  const elapsed = this.clock.getElapsedTime();
+  const AVOID_RADIUS = 3.5;
+  const halfW = MAP_W / 2 - 2.5;
+  const halfH = MAP_H / 2 - 2.5;
+
+  for (const e of this.enemies) {
+    if (e.destroyed) continue;
+    e.char.group.position.set(e.body.position.x, 0, e.body.position.y);
+    e.visionRing.position.set(e.body.position.x, 0.03, e.body.position.y);
+
+    // обновление пузыря
+    if (e.bubble && elapsed > e.bubbleUntil) {
+      this.clearBubble(e);
+    }
+
+    // Философ — меняем цвет кольца обзора
+    if (e.bubble) {
+      const mat = e.bubble.material as THREE.SpriteMaterial;
+      mat.opacity = Math.min(1, (e.bubbleUntil - elapsed) * 4);
+    }
+
+    const canSee = this.canSeePlayer(e);
+
+    // Определяем следующее состояние
+    if (e.state === "chat") {
+      // во время чата — стоим, поворачиваемся к собеседнику
+      Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
+      const partner = this.enemies.find((x) => x.id === e.chatPartnerId);
+      if (partner) {
+        const ddx = partner.body.position.x - e.body.position.x;
+        const ddz = partner.body.position.y - e.body.position.y;
+        const ta = Math.atan2(ddx, ddz);
+        e.char.group.rotation.y = lerpAngle(
+          e.char.group.rotation.y,
+          ta,
+          0.12,
+        );
+      }
+      this.animateCharacter(e.char, 0, dt);
+
+      // Показываем следующую строку диалога
+      if (e.chatDialogue && elapsed >= e.chatNextLineAt) {
+        if (e.chatLineIdx < e.chatDialogue.length) {
+          const line = e.chatDialogue[e.chatLineIdx];
+          if (line.speaker === e.name) {
+            this.showBubbleFor(e, line.text);
+          }
+          e.chatLineIdx++;
+          e.chatNextLineAt = elapsed + CHAT_LINE_DURATION + 0.15;
+        } else {
+          // Диалог завершён
+          e.state = "patrol";
+          e.chatDialogue = null;
+          e.chatPartnerId = null;
+          e.chatCooldownUntil = now + 12;
+        }
+      }
+
+      if (canSee) {
+        // Прервать чат — увидел игрока
+        e.state = "chase";
+        e.spottedSpoken = false;
+        e.chatDialogue = null;
+        e.chatPartnerId = null;
+        e.chatCooldownUntil = now + 12;
+        this.clearBubble(e);
+      }
+      continue;
+    }
+
+    if (canSee) {
+      if (e.state !== "chase") {
+        e.state = "chase";
+        e.spottedSpoken = false;
+      }
+      // Реплика при первом обнаружении
+      if (!e.spottedSpoken) {
+        const line = pickSpottedLine(e.name);
+        if (line) this.showBubbleFor(e, line);
+        e.spottedSpoken = true;
+      }
+    } else if (e.state === "chase") {
+      // Потерял игрока — возвращаемся к патрулю
+      if (!this.inBush && this.destroyed) {
+        e.state = "patrol";
+      } else if (this.inBush) {
+        // игрок спрятался — бот идёт к последней позиции
+        e.state = "patrol";
+      }
+    }
+
+    // === Патруль / Погоня ===
+    if (e.state === "chase") {
+      // Погоня как раньше
+      const dxRaw = this.playerBody.position.x - e.body.position.x;
+      const dzRaw = this.playerBody.position.y - e.body.position.y;
+      const dist = Math.hypot(dxRaw, dzRaw);
+      const toPlayer = new THREE.Vector2(dxRaw, dzRaw).normalize();
+
+      if (e.strafeUntil < now) {
+        e.strafeDir = Math.random() < 0.5 ? 1 : -1;
+        e.strafeUntil = now + 1.0 + Math.random() * 1.4;
+      }
+      const perp = new THREE.Vector2(
+        -toPlayer.y,
+        toPlayer.x,
+      ).multiplyScalar(e.strafeDir);
+
+      const repulsion = this.computeRepulsion(e);
+      const desired = new THREE.Vector2(0, 0);
+      let targetSpeed = 0;
+      const IDEAL_FAR = 10;
+      const IDEAL_NEAR = 6;
+      if (dist > IDEAL_FAR) {
+        desired.copy(toPlayer);
+        desired.add(perp.clone().multiplyScalar(0.25));
+        targetSpeed = ENEMY_CHASE_SPEED;
+      } else if (dist < IDEAL_NEAR) {
+        desired.copy(toPlayer).multiplyScalar(-1);
+        desired.add(perp.clone().multiplyScalar(0.4));
+        targetSpeed = ENEMY_BACK_SPEED;
+      } else {
+        desired.copy(perp);
+        desired.add(toPlayer.clone().multiplyScalar(0.15));
+        targetSpeed = ENEMY_BACK_SPEED * 0.85;
+      }
+      desired.add(repulsion.multiplyScalar(1.6));
+
+      if (desired.lengthSq() > 0.0001) {
+        desired.normalize();
+        Matter.Body.setVelocity(e.body, {
+          x: desired.x * targetSpeed * dt,
+          y: desired.y * targetSpeed * dt,
+        });
+      } else {
+        Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
+      }
+
+      e.char.group.rotation.y = lerpAngle(
+        e.char.group.rotation.y,
+        Math.atan2(toPlayer.x, toPlayer.y),
+        0.14,
+      );
+      this.animateCharacter(e.char, ENEMY_CHASE_SPEED, dt);
+
+      if (dist < 13 && now - e.lastShotAt > 1.5) {
+        e.lastShotAt = now;
+        const jitter = (Math.random() - 0.5) * 0.13;
+        const cs = Math.cos(jitter);
+        const sn = Math.sin(jitter);
+        const ad = new THREE.Vector2(
+          toPlayer.x * cs - toPlayer.y * sn,
+          toPlayer.x * sn + toPlayer.y * cs,
+        );
+        this.fireEnemyProjectile(e, ad);
+      }
+    } else {
+      // === Патруль ===
+      const target = e.patrolPoints[e.patrolIdx];
+      const dxRaw = target.x - e.body.position.x;
+      const dzRaw = target.z - e.body.position.y;
+      const dist = Math.hypot(dxRaw, dzRaw);
+
+      if (dist < 1.2) {
+        e.patrolIdx = (e.patrolIdx + 1) % e.patrolPoints.length;
+      } else {
+        const toTarget = new THREE.Vector2(dxRaw, dzRaw).normalize();
+        const repulsion = this.computeRepulsion(e);
+        const desired = toTarget.clone().add(repulsion.multiplyScalar(1.6));
+        desired.normalize();
+        Matter.Body.setVelocity(e.body, {
+          x: desired.x * ENEMY_PATROL_SPEED * dt,
+          y: desired.y * ENEMY_PATROL_SPEED * dt,
+        });
+        e.char.group.rotation.y = lerpAngle(
+          e.char.group.rotation.y,
+          Math.atan2(toTarget.x, toTarget.y),
+          0.1,
+        );
+        this.animateCharacter(e.char, ENEMY_PATROL_SPEED, dt);
+      }
+    }
+
+    // === Ограничение по карте ===
+    if (e.body.position.x < 70) e.body.position.x = 70;
+    if (e.body.position.x > MAP_W - 70) e.body.position.x = MAP_W - 70;
+    if (e.body.position.y < 70) e.body.position.y = 70;
+    if (e.body.position.y > MAP_H - 70) e.body.position.y = MAP_H - 70;
+
+    // === Автомонолог ===
+    if (
+      e.state === "patrol" &&
+      !e.bubble &&
+      now > e.monologueNextAt &&
+      now > e.chatCooldownUntil
+    ) {
+      const line = pickMonologue(e.name);
+      if (line) this.showBubbleFor(e, line);
+      e.monologueNextAt = now + 8 + Math.random() * 10;
+    }
+
+    // === Проверка возможности начать диалог ===
+    if (
+      e.state === "patrol" &&
+      !e.bubble &&
+      now > e.chatCooldownUntil
+    ) {
+      for (const other of this.enemies) {
+        if (other === e || other.destroyed) continue;
+        if (other.state !== "patrol") continue;
+        if (other.bubble) continue;
+        if (other.chatCooldownUntil > now) continue;
+        const ddx = other.body.position.x - e.body.position.x;
+        const ddz = other.body.position.y - e.body.position.y;
+        const d = Math.hypot(ddx, ddz);
+        if (d < CHAT_TRIGGER_DIST) {
+          const dlg = pickDialogue(e.name, other.name);
+          if (dlg) {
+            e.state = "chat";
+            e.chatPartnerId = other.id;
+            e.chatDialogue = dlg;
+            e.chatLineIdx = 0;
+            e.chatNextLineAt = elapsed + 0.2;
+            other.state = "chat";
+            other.chatPartnerId = e.id;
+            other.chatDialogue = dlg;
+            other.chatLineIdx = 0;
+            other.chatNextLineAt = elapsed + 0.2;
+            // развернуть друг к другу
+            other.char.group.rotation.y = Math.atan2(ddx, ddz);
+            e.char.group.rotation.y = Math.atan2(-ddx, -ddz);
+            other.chatCooldownUntil = now + 15;
+            e.chatCooldownUntil = now + 15;
+          }
+          break;
+        }
+      }
+    }
+  }
+}
+
+private computeRepulsion(e: Enemy): THREE.Vector2 {
+  const AVOID_RADIUS = 3.5;
+  const rep = new THREE.Vector2(0, 0);
+  for (const o of this.obstacles) {
+    const ox = e.body.position.x - o.cx;
+    const oz = e.body.position.y - o.cz;
+    const od = Math.hypot(ox, oz);
+    if (od < AVOID_RADIUS && od > 0.001) {
+      const k = (AVOID_RADIUS - od) / AVOID_RADIUS;
+      rep.x += (ox / od) * k;
+      rep.y += (oz / od) * k;
+    }
+  }
+  for (const c of this.crates) {
+    if (c.destroyed) continue;
+    const ox = e.body.position.x - c.cx;
+    const oz = e.body.position.y - c.cz;
+    const od = Math.hypot(ox, oz);
+    if (od < AVOID_RADIUS && od > 0.001) {
+      const k = (AVOID_RADIUS - od) / AVOID_RADIUS;
+      rep.x += (ox / od) * k * 1.15;
+      rep.y += (oz / od) * k * 1.15;
+    }
+  }
+  const halfW = MAP_W / 2 - 2.5;
+  const halfH = MAP_H / 2 - 2.5;
+  if (e.body.position.x > halfW)
+    rep.x -= (e.body.position.x - halfW) * 0.5;
+  if (e.body.position.x < -halfW)
+    rep.x += (-halfW - e.body.position.x) * 0.5;
+  if (e.body.position.y > halfH)
+    rep.y -= (e.body.position.y - halfH) * 0.5;
+  if (e.body.position.y < -halfH)
+    rep.y += (-halfH - e.body.position.y) * 0.5;
+  return rep;
 }
 
 private updateProjectiles(dt: number) {
@@ -1467,6 +2113,10 @@ private destroyCrate(c: Crate) {
     e.destroyed = true;
     Matter.World.remove(this.world, e.body);
     this.scene.remove(e.char.group);
+    this.scene.remove(e.visionRing);
+    this.clearBubble(e);
+    // Спрятать кольцо обзора
+    e.visionRing.visible = false;
     this.kills += 1;
     this.spawnSparks(
       e.body.position.x,
@@ -1487,7 +2137,18 @@ private destroyCrate(c: Crate) {
       this.respawnTimers.delete(timer);
       if (this.status !== "playing") return;
       const spot = this.pickSafeSpawn();
-      this.spawnEnemy(spot.x, spot.z, e.color, e.name);
+      // Найти исходные данные по имени, чтобы восстановить patrol
+      const def = ENEMY_DEFS.find((d) => d.name === e.name);
+      const patrol =
+        def && def.patrol.length > 0
+          ? def.patrol
+          : [
+              { x: spot.x - 5, z: spot.z - 5 },
+              { x: spot.x + 5, z: spot.z - 5 },
+              { x: spot.x + 5, z: spot.z + 5 },
+              { x: spot.x - 5, z: spot.z + 5 },
+            ];
+      this.spawnEnemy(spot.x, spot.z, e.color, e.name, patrol);
       const idx = this.enemies.indexOf(e);
       if (idx >= 0) this.enemies.splice(idx, 1);
     }, 2200);
@@ -1560,6 +2221,7 @@ private destroyCrate(c: Crate) {
     for (const e of this.enemies) {
       if (!e.destroyed) Matter.World.remove(this.world, e.body);
       this.scene.remove(e.char.group);
+      this.scene.remove(e.visionRing);
       this.disposeObject3D(e.char.group);
     }
     this.enemies = [];
@@ -1594,122 +2256,6 @@ private destroyCrate(c: Crate) {
     this.mouseAimActive = false;
     this.mouseAimDir = null;
     this.spawnEnemies();
-  }
-
-  private updateEnemies(dt: number) {
-    const now = performance.now() / 1000;
-    const playerVisible = !this.inBush && !this.destroyed;
-    const IDEAL_FAR = 10;
-    const IDEAL_NEAR = 6;
-    const AVOID_RADIUS = 3.5;
-    const halfW = MAP_W / 2 - 2.5;
-    const halfH = MAP_H / 2 - 2.5;
-
-    for (const e of this.enemies) {
-      if (e.destroyed) continue;
-      e.char.group.position.set(e.body.position.x, 0, e.body.position.y);
-
-      const dxRaw = this.playerBody.position.x - e.body.position.x;
-      const dzRaw = this.playerBody.position.y - e.body.position.y;
-      const dist = Math.hypot(dxRaw, dzRaw);
-
-      if (!playerVisible) {
-        Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
-        this.animateCharacter(e.char, 0, dt);
-        continue;
-      }
-
-      const toPlayer = new THREE.Vector2(dxRaw, dzRaw).normalize();
-
-      if (e.strafeUntil < now) {
-        e.strafeDir = Math.random() < 0.5 ? 1 : -1;
-        e.strafeUntil = now + 1.0 + Math.random() * 1.4;
-      }
-      const perp = new THREE.Vector2(
-        -toPlayer.y,
-        toPlayer.x,
-      ).multiplyScalar(e.strafeDir);
-
-      const repulsion = new THREE.Vector2(0, 0);
-      for (const o of this.obstacles) {
-        const ox = e.body.position.x - o.cx;
-        const oz = e.body.position.y - o.cz;
-        const od = Math.hypot(ox, oz);
-        if (od < AVOID_RADIUS && od > 0.001) {
-          const k = (AVOID_RADIUS - od) / AVOID_RADIUS;
-          repulsion.x += (ox / od) * k;
-          repulsion.y += (oz / od) * k;
-        }
-      }
-      for (const c of this.crates) {
-        if (c.destroyed) continue;
-        const ox = e.body.position.x - c.cx;
-        const oz = e.body.position.y - c.cz;
-        const od = Math.hypot(ox, oz);
-        if (od < AVOID_RADIUS && od > 0.001) {
-          const k = (AVOID_RADIUS - od) / AVOID_RADIUS;
-          repulsion.x += (ox / od) * k * 1.15;
-          repulsion.y += (oz / od) * k * 1.15;
-        }
-      }
-      if (e.body.position.x > halfW)
-        repulsion.x -= (e.body.position.x - halfW) * 0.5;
-      if (e.body.position.x < -halfW)
-        repulsion.x += (-halfW - e.body.position.x) * 0.5;
-      if (e.body.position.y > halfH)
-        repulsion.y -= (e.body.position.y - halfH) * 0.5;
-      if (e.body.position.y < -halfH)
-        repulsion.y += (-halfH - e.body.position.y) * 0.5;
-
-      const desired = new THREE.Vector2(0, 0);
-      let targetSpeed = 0;
-      if (dist > IDEAL_FAR) {
-        desired.copy(toPlayer);
-        desired.add(perp.clone().multiplyScalar(0.25));
-        targetSpeed = ENEMY_CHASE_SPEED;
-      } else if (dist < IDEAL_NEAR) {
-        desired.copy(toPlayer).multiplyScalar(-1);
-        desired.add(perp.clone().multiplyScalar(0.4));
-        targetSpeed = ENEMY_BACK_SPEED;
-      } else {
-        desired.copy(perp);
-        desired.add(toPlayer.clone().multiplyScalar(0.15));
-        targetSpeed = ENEMY_BACK_SPEED * 0.85;
-      }
-      desired.add(repulsion.multiplyScalar(1.6));
-
-      let speed = 0;
-      if (desired.lengthSq() > 0.0001) {
-        desired.normalize();
-        Matter.Body.setVelocity(e.body, {
-          x: desired.x * targetSpeed * dt,
-          y: desired.y * targetSpeed * dt,
-        });
-        speed = targetSpeed;
-      } else {
-        Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
-      }
-
-      e.char.group.rotation.y = lerpAngle(
-        e.char.group.rotation.y,
-        Math.atan2(toPlayer.x, toPlayer.y),
-        0.14,
-      );
-
-      this.animateCharacter(e.char, speed, dt);
-
-      if (dist < 13 && now - e.lastShotAt > 1.5) {
-        e.lastShotAt = now;
-        const jitter = (Math.random() - 0.5) * 0.13;
-        const cs = Math.cos(jitter);
-        const sn = Math.sin(jitter);
-        const ad = new THREE.Vector2(
-          toPlayer.x * cs - toPlayer.y * sn,
-          toPlayer.x * sn + toPlayer.y * cs,
-        );
-        this.fireEnemyProjectile(e, ad);
-      }
-    }
   }
 
   private updateReload(dt: number) {
