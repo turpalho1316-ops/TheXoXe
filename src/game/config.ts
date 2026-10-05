@@ -59,12 +59,16 @@ export const RELOAD_TIME = 1.6;
 // ============================================================
 // PET — companion wolf
 // ============================================================
+export const PET_HP = 800;
+export const PET_MAX_HP = 800;
 export const PET_DAMAGE = 200;
 export const PET_SPEED = 22;
 export const PET_FOLLOW_DIST = 3.0;
+export const PET_FOLLOW_DEADZONE = 5.0;
 export const PET_ATTACK_RANGE = 1.8;
 export const PET_ATTACK_COOLDOWN = 0.9;
 export const PET_DETECT_RANGE = 18;
+export const PET_LEASH_RANGE = 22;
 
 // ============================================================
 // NIGHT MODE
