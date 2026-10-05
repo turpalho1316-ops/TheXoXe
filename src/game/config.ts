@@ -1,7 +1,6 @@
 // ============================================================
 // XoXe — Game Configuration
 // All tunable values in one place.
-// Change a number, save, rebuild. Don't touch engine.ts.
 // ============================================================
 
 // Player model scale (1.0 = base, 2.0 = twice as large)
@@ -56,3 +55,22 @@ export const CAM_DIST = 35;
 
 // Reload time for one bullet (seconds)
 export const RELOAD_TIME = 1.6;
+
+// ============================================================
+// PET — companion wolf
+// ============================================================
+export const PET_DAMAGE = 200;
+export const PET_SPEED = 22;
+export const PET_FOLLOW_DIST = 3.0;
+export const PET_ATTACK_RANGE = 1.8;
+export const PET_ATTACK_COOLDOWN = 0.9;
+export const PET_DETECT_RANGE = 18;
+
+// ============================================================
+// NIGHT MODE
+// ============================================================
+export const NIGHT_AMBIENT_INTENSITY = 0.35;
+export const NIGHT_MOON_INTENSITY = 0.5;
+export const NIGHT_LAMP_INTENSITY = 3.0;
+export const NIGHT_LAMP_DISTANCE = 14;
+export const NIGHT_FOG_COLOR = 0x0a1220;
