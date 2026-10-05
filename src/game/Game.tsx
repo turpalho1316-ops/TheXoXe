@@ -29,8 +29,8 @@ export default function Game() {
   const [playerName, setPlayerName] = useState("");
   const [killFeed, setKillFeed] = useState<KillFeedEntry[]>([]);
   const [hudState, setHudState] = useState<EngineState>({
-    hp: 1000,
-    maxHp: 1000,
+    hp: 9000,
+    maxHp: 9000,
     reload: [1, 1, 1],
     ammoMax: 3,
     bullets: 3,
