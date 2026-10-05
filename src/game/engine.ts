@@ -1230,7 +1230,7 @@ private updateAimOverlay() {
     const cx = this.playerBody.position.x + (dir.x * AIM_LENGTH) / 2;
     const cz = this.playerBody.position.y + (dir.y * AIM_LENGTH) / 2;
     this.aimMesh.position.set(cx, 0.02, cz);
-    this.aimMesh.rotation.set(-Math.PI / 2, 0, -angle);
+    this.aimMesh.rotation.set(Math.PI / 2, 0, -angle);
   } else {
     this.aimMesh.visible = false;
   }
