@@ -58,7 +58,7 @@ export function clearBubble(enemy: Enemy): void {
 }
 
 // ============================================================
-// Player visibility
+// Player visibility (respects bushes)
 // ============================================================
 function canSeePlayer(ctx: AIContext, enemy: Enemy): boolean {
   if (ctx.destroyed) return false;
@@ -106,7 +106,7 @@ function computeRepulsion(ctx: AIContext, e: Enemy): THREE.Vector2 {
 }
 
 // ============================================================
-// Main AI tick — called every frame from engine
+// Main AI tick
 // ============================================================
 export function updateEnemies(
   ctx: AIContext,
@@ -121,6 +121,11 @@ export function updateEnemies(
     e.char.group.position.set(e.body.position.x, 0, e.body.position.y);
     e.visionRing.position.set(e.body.position.x, 0.03, e.body.position.y);
 
+    // Reset pet-aggro if pet is gone
+    if (e.targetPet && (!ctx.pet || !ctx.pet.alive)) {
+      e.targetPet = false;
+    }
+
     // Bubble lifetime
     if (e.bubble && elapsed > e.bubbleUntil) {
       clearBubble(e);
@@ -130,10 +135,26 @@ export function updateEnemies(
       mat.opacity = Math.min(1, (e.bubbleUntil - elapsed) * 4);
     }
 
-    const canSee = canSeePlayer(ctx, e);
+    // -------- Determine target --------
+    const petTargetX = ctx.pet && ctx.pet.alive ? ctx.pet.body.position.x : 0;
+    const petTargetZ = ctx.pet && ctx.pet.alive ? ctx.pet.body.position.y : 0;
+    const usePet = e.targetPet && ctx.pet && ctx.pet.alive;
+
+    const targetX = usePet ? petTargetX : ctx.playerBody.position.x;
+    const targetZ = usePet ? petTargetZ : ctx.playerBody.position.y;
+
+    // Visibility check
+    let canSee = false;
+    if (usePet) {
+      const dxp = targetX - e.body.position.x;
+      const dzp = targetZ - e.body.position.y;
+      canSee = dxp * dxp + dzp * dzp < e.visionRadius * e.visionRadius;
+    } else {
+      canSee = canSeePlayer(ctx, e);
+    }
 
     // ============================================================
-    // STATE: CHAT — бот общается с другим ботом, стоит на месте
+    // STATE: CHAT
     // ============================================================
     if (e.state === "chat") {
       Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
@@ -185,31 +206,32 @@ export function updateEnemies(
         e.state = "chase";
         e.spottedSpoken = false;
       }
-      if (!e.spottedSpoken) {
+      if (!e.spottedSpoken && !usePet) {
         const line = pickSpottedLine(e.name);
         if (line) ctx.showBubbleFor(e, line);
         e.spottedSpoken = true;
       }
     } else if (e.state === "chase") {
       e.state = "patrol";
+      e.targetPet = false;
     }
 
     // ============================================================
     // STATE: CHASE
     // ============================================================
     if (e.state === "chase") {
-      const dxRaw = ctx.playerBody.position.x - e.body.position.x;
-      const dzRaw = ctx.playerBody.position.y - e.body.position.y;
-      const dist = Math.hypot(dxRaw, dzRaw);
-      const toPlayer = new THREE.Vector2(dxRaw, dzRaw).normalize();
+      const dxRaw = targetX - e.body.position.x;
+      const dzRaw = targetZ - e.body.position.y;
+      const dist = Math.hypot(dxRaw, dzRaw) || 1;
+      const toTarget = new THREE.Vector2(dxRaw, dzRaw).normalize();
 
       if (e.strafeUntil < now) {
         e.strafeDir = Math.random() < 0.5 ? 1 : -1;
         e.strafeUntil = now + 1.0 + Math.random() * 1.4;
       }
       const perp = new THREE.Vector2(
-        -toPlayer.y,
-        toPlayer.x,
+        -toTarget.y,
+        toTarget.x,
       ).multiplyScalar(e.strafeDir);
 
       const repulsion = computeRepulsion(ctx, e);
@@ -219,16 +241,16 @@ export function updateEnemies(
       const IDEAL_NEAR = 6;
 
       if (dist > IDEAL_FAR) {
-        desired.copy(toPlayer);
+        desired.copy(toTarget);
         desired.add(perp.clone().multiplyScalar(0.25));
         targetSpeed = ENEMY_CHASE_SPEED;
       } else if (dist < IDEAL_NEAR) {
-        desired.copy(toPlayer).multiplyScalar(-1);
+        desired.copy(toTarget).multiplyScalar(-1);
         desired.add(perp.clone().multiplyScalar(0.4));
         targetSpeed = ENEMY_BACK_SPEED;
       } else {
         desired.copy(perp);
-        desired.add(toPlayer.clone().multiplyScalar(0.15));
+        desired.add(toTarget.clone().multiplyScalar(0.15));
         targetSpeed = ENEMY_BACK_SPEED * 0.85;
       }
       desired.add(repulsion.multiplyScalar(1.6));
@@ -245,7 +267,7 @@ export function updateEnemies(
 
       e.char.group.rotation.y = lerpAngle(
         e.char.group.rotation.y,
-        Math.atan2(toPlayer.x, toPlayer.y),
+        Math.atan2(toTarget.x, toTarget.y),
         0.14,
       );
       ctx.animateCharacter(e.char, ENEMY_CHASE_SPEED, dt);
@@ -256,8 +278,8 @@ export function updateEnemies(
         const cs = Math.cos(jitter);
         const sn = Math.sin(jitter);
         const ad = new THREE.Vector2(
-          toPlayer.x * cs - toPlayer.y * sn,
-          toPlayer.x * sn + toPlayer.y * cs,
+          toTarget.x * cs - toTarget.y * sn,
+          toTarget.x * sn + toTarget.y * cs,
         );
         ctx.fireEnemyProjectile(e, ad);
       }
@@ -315,7 +337,7 @@ export function updateEnemies(
     }
 
     // ============================================================
-    // CHAT INITIATION — two bots close to each other
+    // CHAT INITIATION
     // ============================================================
     if (e.state === "patrol" && !e.bubble && now > e.chatCooldownUntil) {
       for (const other of ctx.enemies) {
@@ -355,7 +377,7 @@ export function updateEnemies(
 }
 
 // ============================================================
-// Vision ring creation (called once per spawn)
+// Vision ring creation
 // ============================================================
 export function createVisionRing(
   scene: THREE.Scene,
