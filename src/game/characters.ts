@@ -1,9 +1,10 @@
 import * as THREE from "three";
-import type { Character } from "./types";
+import type { Character, Pet } from "./types";
+import { PET_HP, PET_MAX_HP } from "./config";
+import { createHpBarTexture } from "./textures";
 
 // ============================================================
 // Build a character mesh from primitives.
-// style: "player" | "yakkar" | "vein" | "philosoph" | "patriciy"
 // ============================================================
 export function buildCharacter(
   accentColor: number,
@@ -355,4 +356,186 @@ export function setCharacterOpacity(c: Character, opacity: number): void {
     mat.transparent = opacity < 1.0;
     if (typeof mat.opacity === "number") mat.opacity = opacity;
   });
+}
+
+// ============================================================
+// PET — wolf companion with HP bar
+// ============================================================
+export function buildPet(): Pet {
+  const group = new THREE.Group();
+
+  const matFur = new THREE.MeshStandardMaterial({
+    color: 0x6b6f76,
+    roughness: 0.9,
+  });
+  const matFurDark = new THREE.MeshStandardMaterial({
+    color: 0x3d4147,
+    roughness: 0.9,
+  });
+  const matNose = new THREE.MeshStandardMaterial({
+    color: 0x111317,
+    roughness: 0.5,
+  });
+  const matEye = new THREE.MeshStandardMaterial({
+    color: 0xffd24a,
+    emissive: 0xffd24a,
+    emissiveIntensity: 3.5,
+  });
+
+  const bodyGeo = new THREE.SphereGeometry(0.42, 14, 14);
+  bodyGeo.scale(1.3, 0.85, 0.9);
+  const body = new THREE.Mesh(bodyGeo, matFur);
+  body.position.y = 0.7;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  const head = new THREE.Group();
+  const headGeo = new THREE.SphereGeometry(0.28, 14, 14);
+  headGeo.scale(1.1, 1.0, 1.1);
+  const headMesh = new THREE.Mesh(headGeo, matFur);
+  headMesh.castShadow = true;
+  head.add(headMesh);
+
+  const snoutGeo = new THREE.BoxGeometry(0.18, 0.14, 0.28);
+  const snout = new THREE.Mesh(snoutGeo, matFurDark);
+  snout.position.set(0, -0.05, 0.28);
+  snout.castShadow = true;
+  head.add(snout);
+
+  const noseGeo = new THREE.SphereGeometry(0.055, 8, 8);
+  const nose = new THREE.Mesh(noseGeo, matNose);
+  nose.position.set(0, -0.02, 0.43);
+  head.add(nose);
+
+  const earGeo = new THREE.ConeGeometry(0.1, 0.22, 6);
+  const earL = new THREE.Mesh(earGeo, matFurDark);
+  earL.position.set(-0.13, 0.24, -0.02);
+  earL.rotation.z = -0.15;
+  head.add(earL);
+  const earR = new THREE.Mesh(earGeo, matFurDark);
+  earR.position.set(0.13, 0.24, -0.02);
+  earR.rotation.z = 0.15;
+  head.add(earR);
+
+  const eyeGeo = new THREE.SphereGeometry(0.05, 8, 8);
+  const eyeL = new THREE.Mesh(eyeGeo, matEye);
+  eyeL.position.set(-0.1, 0.05, 0.22);
+  head.add(eyeL);
+  const eyeR = new THREE.Mesh(eyeGeo, matEye);
+  eyeR.position.set(0.1, 0.05, 0.22);
+  head.add(eyeR);
+
+  head.position.set(0, 0.85, 0.55);
+  group.add(head);
+
+  const tail = new THREE.Group();
+  const tailGeo = new THREE.CylinderGeometry(0.06, 0.03, 0.55, 8);
+  const tailMesh = new THREE.Mesh(tailGeo, matFurDark);
+  tailMesh.position.y = 0.27;
+  tailMesh.castShadow = true;
+  tail.add(tailMesh);
+  tail.position.set(0, 0.85, -0.5);
+  tail.rotation.x = -0.7;
+  group.add(tail);
+
+  const legGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.4, 8);
+  const legL = new THREE.Group();
+  const legLMesh = new THREE.Mesh(legGeo, matFurDark);
+  legLMesh.position.y = -0.2;
+  legLMesh.castShadow = true;
+  legL.add(legLMesh);
+  legL.position.set(-0.2, 0.42, 0.35);
+  group.add(legL);
+
+  const legR = new THREE.Group();
+  const legRMesh = new THREE.Mesh(legGeo, matFurDark);
+  legRMesh.position.y = -0.2;
+  legRMesh.castShadow = true;
+  legR.add(legRMesh);
+  legR.position.set(0.2, 0.42, 0.35);
+  group.add(legR);
+
+  const legBL = new THREE.Group();
+  const legBLMesh = new THREE.Mesh(legGeo, matFurDark);
+  legBLMesh.position.y = -0.2;
+  legBLMesh.castShadow = true;
+  legBL.add(legBLMesh);
+  legBL.position.set(-0.2, 0.42, -0.35);
+  group.add(legBL);
+
+  const legBR = new THREE.Group();
+  const legBRMesh = new THREE.Mesh(legGeo, matFurDark);
+  legBRMesh.position.y = -0.2;
+  legBRMesh.castShadow = true;
+  legBR.add(legBRMesh);
+  legBR.position.set(0.2, 0.42, -0.35);
+  group.add(legBR);
+
+  const shadowMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.3,
+  });
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.6, 20),
+    shadowMat,
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.01;
+  group.add(shadow);
+
+  // HP bar (above head)
+  const hpBarTex = createHpBarTexture(PET_HP, PET_MAX_HP, "Волк");
+  const hpBar = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: hpBarTex,
+      transparent: true,
+      depthTest: false,
+    }),
+  );
+  hpBar.scale.set(2.4, 0.9, 1);
+  hpBar.position.y = 1.9;
+  group.add(hpBar);
+
+  return {
+    group,
+    body: null as unknown as Matter.Body,
+    hp: PET_HP,
+    maxHp: PET_MAX_HP,
+    hpBar,
+    state: "follow",
+    targetEnemyId: null,
+    lastAttackerId: null,
+    lastBiteAt: 0,
+    walkPhase: 0,
+    tail,
+    head,
+    legL,
+    legR,
+    legBL,
+    legBR,
+    shadow,
+    alive: true,
+  };
+}
+
+export function animatePet(pet: Pet, speed: number, dt: number): void {
+  const norm = Math.min(1, speed / 18);
+  pet.walkPhase += dt * (6 + norm * 14);
+  const swing = Math.sin(pet.walkPhase) * 0.6 * norm;
+  pet.legL.rotation.x = swing;
+  pet.legR.rotation.x = -swing;
+  pet.legBL.rotation.x = -swing;
+  pet.legBR.rotation.x = swing;
+  pet.tail.rotation.z = Math.sin(pet.walkPhase * 0.6) * 0.4;
+  pet.head.rotation.x = Math.sin(pet.walkPhase * 0.5) * 0.05;
+}
+
+export function refreshPetHpBar(pet: Pet): void {
+  const tex = createHpBarTexture(pet.hp, pet.maxHp, "Волк");
+  const oldMap = pet.hpBar.material.map;
+  pet.hpBar.material.map = tex;
+  pet.hpBar.material.needsUpdate = true;
+  if (oldMap) oldMap.dispose();
 }
