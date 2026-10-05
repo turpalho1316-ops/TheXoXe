@@ -248,8 +248,8 @@ export class Engine {
   private playerBody!: Matter.Body;
   private playerVel = new THREE.Vector2(0, 0);
   private playerFacing = 0;
-  private playerHp = 1000;
-  private playerMaxHp = 1000;
+  private playerHp = 9000;
+  private playerMaxHp = 9000;
   private playerName = "Player";
   private playerHpBar!: THREE.Sprite;
   private inBush = false;
