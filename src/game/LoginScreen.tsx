@@ -1,15 +1,17 @@
 import { useState } from "react";
+import type { MapType } from "./types";
 
 type Props = {
-  onStart: (name: string) => void;
+  onStart: (name: string, map: MapType) => void;
 };
 
 export default function LoginScreen({ onStart }: Props) {
   const [name, setName] = useState("");
+  const [map, setMap] = useState<MapType>("day");
 
   const submit = () => {
     const trimmed = name.trim() || "Player";
-    onStart(trimmed);
+    onStart(trimmed, map);
   };
 
   return (
@@ -19,20 +21,22 @@ export default function LoginScreen({ onStart }: Props) {
         inset: 0,
         zIndex: 50,
         display: "flex",
-        flexDirection: "row",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 40,
-        padding: "10px 30px",
+        gap: 18,
+        padding: "20px",
         background:
-          "radial-gradient(ellipse at center, rgba(20,40,60,0.85) 0%, rgba(8,12,18,0.96) 75%)",
-        backdropFilter: "blur(2px)",
+          "radial-gradient(ellipse at center, rgba(20,40,60,0.88) 0%, rgba(8,12,18,0.97) 75%)",
+        backdropFilter: "blur(3px)",
+        overflowY: "auto",
       }}
     >
-      <div style={{ textAlign: "center", flexShrink: 0 }}>
+      {/* Title */}
+      <div style={{ textAlign: "center" }}>
         <div
           style={{
-            fontSize: "clamp(48px, 8vw, 96px)",
+            fontSize: "clamp(40px, 7vw, 72px)",
             fontWeight: 900,
             letterSpacing: "0.06em",
             background:
@@ -47,8 +51,8 @@ export default function LoginScreen({ onStart }: Props) {
         </div>
         <div
           style={{
-            marginTop: 8,
-            fontSize: 14,
+            marginTop: 4,
+            fontSize: 12,
             fontWeight: 600,
             color: "rgba(255,255,255,0.75)",
             letterSpacing: "0.4em",
@@ -59,17 +63,13 @@ export default function LoginScreen({ onStart }: Props) {
         </div>
       </div>
 
+      {/* Nickname */}
       <div
         style={{
-          background: "rgba(15, 25, 35, 0.88)",
-          border: "2px solid rgba(255,255,255,0.08)",
-          borderRadius: 16,
-          padding: "18px 22px",
-          width: "min(360px, 60vw)",
           display: "flex",
           flexDirection: "column",
-          gap: 12,
-          boxShadow: "0 20px 50px rgba(0,0,0,0.55)",
+          gap: 6,
+          width: "min(340px, 80vw)",
         }}
       >
         <label
@@ -104,39 +104,114 @@ export default function LoginScreen({ onStart }: Props) {
             fontFamily: "inherit",
           }}
         />
-        <button
-          onClick={submit}
+      </div>
+
+      {/* Map selection */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          width: "min(340px, 80vw)",
+        }}
+      >
+        <label
           style={{
-            background: "linear-gradient(180deg, #ffb53a 0%, #ff7a18 100%)",
-            border: "none",
-            borderRadius: 12,
-            padding: "12px 20px",
-            color: "#3a1700",
-            fontSize: 18,
-            fontWeight: 900,
-            letterSpacing: "0.1em",
-            cursor: "pointer",
+            fontSize: 11,
+            fontWeight: 600,
+            color: "rgba(255,255,255,0.65)",
+            letterSpacing: "0.15em",
             textTransform: "uppercase",
-            boxShadow:
-              "0 5px 0 #b14600, 0 8px 20px rgba(255,140,30,0.4)",
-            transition: "transform 80ms ease",
-          }}
-          onMouseDown={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.transform =
-              "translateY(3px)";
-          }}
-          onMouseUp={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.transform =
-              "translateY(0)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.transform =
-              "translateY(0)";
           }}
         >
-          В Бой
-        </button>
+          Карта
+        </label>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => setMap("day")}
+            style={{
+              flex: 1,
+              padding: "14px 8px",
+              borderRadius: 12,
+              border:
+                map === "day"
+                  ? "3px solid #ffd54a"
+                  : "2px solid rgba(255,255,255,0.12)",
+              background:
+                map === "day"
+                  ? "linear-gradient(180deg, #ffe089 0%, #f0a520 100%)"
+                  : "rgba(30,40,55,0.7)",
+              color: map === "day" ? "#3a2400" : "#fff",
+              fontWeight: 800,
+              fontSize: 15,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              boxShadow:
+                map === "day"
+                  ? "0 0 18px rgba(255,213,74,0.55), 0 4px 0 rgba(0,0,0,0.35)"
+                  : "none",
+              transition: "all 120ms ease",
+            }}
+          >
+            ☀ День
+          </button>
+          <button
+            type="button"
+            onClick={() => setMap("night")}
+            style={{
+              flex: 1,
+              padding: "14px 8px",
+              borderRadius: 12,
+              border:
+                map === "night"
+                  ? "3px solid #6cb8ff"
+                  : "2px solid rgba(255,255,255,0.12)",
+              background:
+                map === "night"
+                  ? "linear-gradient(180deg, #2a4a7a 0%, #16294a 100%)"
+                  : "rgba(30,40,55,0.7)",
+              color: map === "night" ? "#e8f3ff" : "#fff",
+              fontWeight: 800,
+              fontSize: 15,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              boxShadow:
+                map === "night"
+                  ? "0 0 18px rgba(108,184,255,0.55), 0 4px 0 rgba(0,0,0,0.35)"
+                  : "none",
+              transition: "all 120ms ease",
+            }}
+          >
+            🌙 Ночь
+          </button>
+        </div>
       </div>
+
+      {/* Start button */}
+      <button
+        type="button"
+        onClick={submit}
+        style={{
+          marginTop: 6,
+          width: "min(340px, 80vw)",
+          padding: "14px 24px",
+          border: "none",
+          borderRadius: 12,
+          background: "linear-gradient(180deg, #ffb53a 0%, #ff7a18 100%)",
+          color: "#3a1700",
+          fontSize: 20,
+          fontWeight: 900,
+          letterSpacing: "0.12em",
+          cursor: "pointer",
+          textTransform: "uppercase",
+          boxShadow:
+            "0 5px 0 #b14600, 0 10px 22px rgba(255,140,30,0.45)",
+          fontFamily: "inherit",
+        }}
+      >
+        В бой
+      </button>
     </div>
   );
 }
