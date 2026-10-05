@@ -41,11 +41,15 @@ import type {
   EntitySnapshot,
   ProjectileSnapshot,
   AIContext,
+  MapType,
+  Pet,
 } from "./types";
 import {
   buildCharacter,
   animateCharacter,
   setCharacterOpacity,
+  buildPet,
+  animatePet,
 } from "./characters";
 import {
   setupLights,
@@ -55,6 +59,7 @@ import {
   setupCrates,
   setupBushes,
   setupAimOverlay,
+  setupStreetLamps,
 } from "./world";
 import {
   spawnMuzzleFlash,
@@ -73,6 +78,7 @@ import {
   showBubbleFor,
   clearBubble,
 } from "./ai";
+import { updatePet, damagePet, respawnPet } from "./pet";
 
 type BotDef = {
   name: string;
@@ -155,6 +161,7 @@ export class Engine {
   private container: HTMLElement;
   private clock = new THREE.Clock();
   private rafId: number | null = null;
+  private mapType: MapType;
 
   private engine: Matter.Engine;
   private world: Matter.World;
@@ -197,6 +204,7 @@ export class Engine {
   private sparks: Spark[] = [];
   private muzzleFlashes: MuzzleFlash[] = [];
   private damageNumbers: DamageNumber[] = [];
+  private pet: Pet | null = null;
 
   private keys: Record<string, boolean> = {};
   private mouseAimDir: THREE.Vector2 | null = null;
@@ -219,10 +227,12 @@ export class Engine {
   constructor(
     container: HTMLElement,
     playerName: string,
+    mapType: MapType,
     callbacks: EngineCallbacks,
   ) {
     this.container = container;
     this.playerName = playerName || "Player";
+    this.mapType = mapType;
     this.callbacks = callbacks;
 
     this.state = this.makeStateSnapshot();
@@ -233,7 +243,7 @@ export class Engine {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.setClearColor(0x87a965);
+    this.renderer.setClearColor(mapType === "night" ? 0x0a1220 : 0x87a965);
     container.appendChild(this.renderer.domElement);
 
     const aspect = container.clientWidth / container.clientHeight;
@@ -251,14 +261,18 @@ export class Engine {
     this.engine = Matter.Engine.create({ gravity: { x: 0, y: 0, scale: 0 } });
     this.world = this.engine.world;
 
-    setupLights(this.scene);
-    setupGround(this.scene);
-    setupWalls(this.scene, this.world);
-    this.obstacles = setupObstacles(this.scene, this.world);
+    setupLights(this.scene, mapType);
+    setupGround(this.scene, mapType);
+    setupWalls(this.scene, this.world, mapType);
+    this.obstacles = setupObstacles(this.scene, this.world, mapType);
     this.crates = setupCrates(this.scene, this.world);
-    this.bushes = setupBushes(this.scene);
+    this.bushes = setupBushes(this.scene, mapType);
+    if (mapType === "night") {
+      setupStreetLamps(this.scene);
+    }
     this.aimMesh = setupAimOverlay(this.scene);
     this.setupPlayer();
+    this.setupPet();
     this.spawnEnemies();
 
     this.updateCamera(true);
@@ -297,6 +311,21 @@ export class Engine {
     });
     Matter.World.add(this.world, matterBody);
     this.playerBody = matterBody;
+  }
+
+  private setupPet() {
+    const pet = buildPet();
+    this.pet = pet;
+    this.scene.add(pet.group);
+
+    const body = Matter.Bodies.circle(1.5, 1.5, 0.5, {
+      frictionAir: 0,
+      inertia: Infinity,
+    });
+    Matter.World.add(this.world, body);
+    pet.body = body;
+    pet.group.position.set(1.5, 0, 1.5);
+    Matter.Body.setPosition(body, { x: 1.5, y: 1.5 });
   }
 
   private loadPlayerGLB() {
@@ -432,6 +461,7 @@ export class Engine {
       bubbleUntil: 0,
       monologueNextAt: performance.now() / 1000 + 4 + Math.random() * 6,
       spottedSpoken: false,
+      targetPet: false,
     });
   }
 
@@ -915,6 +945,7 @@ export class Engine {
         if (stop) break;
 
         if (p.fromPlayer) {
+          // ---------- Player bullets hit enemies ----------
           for (const e of this.enemies) {
             if (e.destroyed) continue;
             if (p.pierced.has(e)) continue;
@@ -949,16 +980,52 @@ export class Engine {
             }
           }
         } else {
+          // ---------- Enemy bullets: hit player OR pet ----------
+          let hitAnything = false;
+
+          // Player
           const dxp = nx - this.playerBody.position.x;
           const dzp = nz - this.playerBody.position.y;
-          if (dxp * dxp + dzp * dzp < 0.65 * 0.65 && !this.destroyed) {
+          if (
+            dxp * dxp + dzp * dzp < 0.65 * 0.65 &&
+            !this.destroyed
+          ) {
             this.playerHp = Math.max(0, this.playerHp - p.damage);
             this.refreshPlayerHpBar();
             if (this.playerHp <= 0) this.handlePlayerDeath(p.ownerName);
             hit = true;
             hitWorld = false;
-            stop = true;
+            hitAnything = true;
           }
+
+          // Pet
+          if (
+            !hitAnything &&
+            this.pet &&
+            this.pet.alive
+          ) {
+            const dxpt = nx - this.pet.body.position.x;
+            const dzpt = nz - this.pet.body.position.y;
+            if (dxpt * dxpt + dzpt * dzpt < 0.65 * 0.65) {
+              const ctxTmp = this.makeAIContext();
+              damagePet(ctxTmp, p.ownerId, p.damage);
+              spawnDamageNumber(
+                this.scene,
+                this.damageNumbers,
+                this.pet.body.position.x,
+                1.8,
+                this.pet.body.position.y,
+                p.damage,
+                "#ff5a3a",
+                now,
+              );
+              hit = true;
+              hitWorld = false;
+              hitAnything = true;
+            }
+          }
+
+          if (hitAnything) stop = true;
         }
         if (stop) break;
       }
@@ -1181,6 +1248,12 @@ export class Engine {
     this.aimActive = false;
     this.mouseAimActive = false;
     this.mouseAimDir = null;
+
+    // Respawn pet alongside player
+    if (this.pet) {
+      respawnPet(this.pet, 1.5, 1.5);
+    }
+
     this.spawnEnemies();
   }
 
@@ -1270,6 +1343,7 @@ export class Engine {
       inBush: this.inBush,
       destroyed: this.destroyed,
       sound: this.sound,
+      pet: this.pet,
       fireEnemyProjectile: (e, d) => this.fireEnemyProjectile(e, d),
       animateCharacter: (c, s, dt) => animateCharacter(c, s, dt),
       showBubbleFor: (e, text) =>
@@ -1318,6 +1392,20 @@ export class Engine {
       }
       const ctx = this.makeAIContext();
       updateEnemies(ctx, dt, lerpAngle);
+      updatePet(ctx, dt, lerpAngle);
+
+      // Handle pet bites → refresh enemy hp bars
+      for (const e of this.enemies) {
+        const eAny = e as Enemy & { _petBiteDamage?: number };
+        if (eAny._petBiteDamage !== undefined) {
+          this.refreshEnemyHpBar(e);
+          if (e.hp <= 0) {
+            this.killEnemy(e, "Волк");
+          }
+          delete eAny._petBiteDamage;
+        }
+      }
+
       this.updateProjectiles(dt);
       this.updateAimOverlay();
       this.updateReload(dt);
@@ -1354,6 +1442,22 @@ export class Engine {
       inBush: this.inBush,
       destroyed: this.destroyed,
     });
+    if (this.pet && this.pet.alive) {
+      entities.push({
+        id: "p_pet",
+        kind: "pet",
+        name: "Волк",
+        color: 0x6b6f76,
+        x: this.pet.body.position.x,
+        z: this.pet.body.position.y,
+        facing: this.pet.group.rotation.y,
+        hp: this.pet.hp,
+        maxHp: this.pet.maxHp,
+        isLocal: true,
+        inBush: false,
+        destroyed: false,
+      });
+    }
     for (const e of this.enemies) {
       entities.push({
         id: e.id,
