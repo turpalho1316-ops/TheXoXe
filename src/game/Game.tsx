@@ -29,8 +29,8 @@ export default function Game() {
   const [playerName, setPlayerName] = useState("");
   const [killFeed, setKillFeed] = useState<KillFeedEntry[]>([]);
   const [hudState, setHudState] = useState<EngineState>({
-    hp: 9000,
-    maxHp: 9000,
+    hp: 1000,
+    maxHp: 1000,
     reload: [1, 1, 1],
     ammoMax: 3,
     bullets: 3,
@@ -79,8 +79,8 @@ export default function Game() {
       mode: "static",
       position: { left: "50%", top: "50%" },
       color: "#ffffff",
-      size: 130,
-      restOpacity: 0.7,
+      size: 90,
+      restOpacity: 0.45,
     });
     leftJoyRef.current = leftJoy;
 
@@ -88,9 +88,9 @@ export default function Game() {
       zone: rightZone,
       mode: "static",
       position: { left: "50%", top: "50%" },
-      color: "#ff5555",
-      size: 130,
-      restOpacity: 0.7,
+      color: "#ff7070",
+      size: 90,
+      restOpacity: 0.45,
     });
     rightJoyRef.current = rightJoy;
 
@@ -162,10 +162,10 @@ export default function Game() {
         className="joystick-zone"
         style={{
           position: "absolute",
-          left: 24,
-          bottom: 24,
-          width: 160,
-          height: 160,
+          left: 20,
+          bottom: 20,
+          width: 130,
+          height: 130,
           touchAction: "none",
           opacity: started ? 1 : 0,
           pointerEvents: started ? "auto" : "none",
@@ -177,10 +177,10 @@ export default function Game() {
         className="joystick-zone"
         style={{
           position: "absolute",
-          right: 24,
-          bottom: 24,
-          width: 160,
-          height: 160,
+          right: 20,
+          bottom: 20,
+          width: 130,
+          height: 130,
           touchAction: "none",
           opacity: started ? 1 : 0,
           pointerEvents: started ? "auto" : "none",
