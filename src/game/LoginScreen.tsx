@@ -19,19 +19,20 @@ export default function LoginScreen({ onStart }: Props) {
         inset: 0,
         zIndex: 50,
         display: "flex",
-        flexDirection: "column",
+        flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
-        gap: 28,
+        gap: 40,
+        padding: "10px 30px",
         background:
           "radial-gradient(ellipse at center, rgba(20,40,60,0.85) 0%, rgba(8,12,18,0.96) 75%)",
         backdropFilter: "blur(2px)",
       }}
     >
-      <div style={{ textAlign: "center" }}>
+      <div style={{ textAlign: "center", flexShrink: 0 }}>
         <div
           style={{
-            fontSize: "clamp(56px, 12vw, 120px)",
+            fontSize: "clamp(48px, 8vw, 96px)",
             fontWeight: 900,
             letterSpacing: "0.06em",
             background:
@@ -46,8 +47,8 @@ export default function LoginScreen({ onStart }: Props) {
         </div>
         <div
           style={{
-            marginTop: 12,
-            fontSize: 18,
+            marginTop: 8,
+            fontSize: 14,
             fontWeight: 600,
             color: "rgba(255,255,255,0.75)",
             letterSpacing: "0.4em",
@@ -62,18 +63,18 @@ export default function LoginScreen({ onStart }: Props) {
         style={{
           background: "rgba(15, 25, 35, 0.88)",
           border: "2px solid rgba(255,255,255,0.08)",
-          borderRadius: 18,
-          padding: 28,
-          width: "min(380px, 90vw)",
+          borderRadius: 16,
+          padding: "18px 22px",
+          width: "min(360px, 60vw)",
           display: "flex",
           flexDirection: "column",
-          gap: 18,
+          gap: 12,
           boxShadow: "0 20px 50px rgba(0,0,0,0.55)",
         }}
       >
         <label
           style={{
-            fontSize: 13,
+            fontSize: 11,
             fontWeight: 600,
             color: "rgba(255,255,255,0.65)",
             letterSpacing: "0.15em",
@@ -94,10 +95,10 @@ export default function LoginScreen({ onStart }: Props) {
           style={{
             background: "rgba(0,0,0,0.4)",
             border: "2px solid rgba(255,255,255,0.12)",
-            borderRadius: 12,
-            padding: "14px 16px",
+            borderRadius: 10,
+            padding: "10px 14px",
             color: "#fff",
-            fontSize: 18,
+            fontSize: 16,
             fontWeight: 600,
             outline: "none",
             fontFamily: "inherit",
@@ -108,16 +109,16 @@ export default function LoginScreen({ onStart }: Props) {
           style={{
             background: "linear-gradient(180deg, #ffb53a 0%, #ff7a18 100%)",
             border: "none",
-            borderRadius: 14,
-            padding: "16px 24px",
+            borderRadius: 12,
+            padding: "12px 20px",
             color: "#3a1700",
-            fontSize: 22,
+            fontSize: 18,
             fontWeight: 900,
             letterSpacing: "0.1em",
             cursor: "pointer",
             textTransform: "uppercase",
             boxShadow:
-              "0 6px 0 #b14600, 0 10px 24px rgba(255,140,30,0.4)",
+              "0 5px 0 #b14600, 0 8px 20px rgba(255,140,30,0.4)",
             transition: "transform 80ms ease",
           }}
           onMouseDown={(e) => {
@@ -135,26 +136,6 @@ export default function LoginScreen({ onStart }: Props) {
         >
           В Бой
         </button>
-      </div>
-
-      <div
-        style={{
-          textAlign: "center",
-          fontSize: 13,
-          color: "rgba(255,255,255,0.55)",
-          maxWidth: 420,
-          lineHeight: 1.6,
-          padding: "0 16px",
-        }}
-      >
-        <div>
-          <b style={{ color: "#fff" }}>ПК:</b> WASD — движение, ЛКМ удерживай
-          для прицела, отпусти — выстрел.
-        </div>
-        <div>
-          <b style={{ color: "#fff" }}>Моб.:</b> левый стик — ходьба, правый
-          стик — прицел и выстрел.
-        </div>
       </div>
     </div>
   );
