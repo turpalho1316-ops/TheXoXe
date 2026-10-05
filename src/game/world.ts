@@ -1,9 +1,18 @@
 import * as THREE from "three";
 import Matter from "matter-js";
 import { createGrassTexture } from "./textures";
-import { MAP_W, MAP_H, AIM_LENGTH, AIM_WIDTH } from "./config";
-import type { Obstacle, Crate, Bush } from "./types";
-import { CRATE_HP } from "./config";
+import {
+  MAP_W,
+  MAP_H,
+  AIM_LENGTH,
+  AIM_WIDTH,
+  CRATE_HP,
+  NIGHT_AMBIENT_INTENSITY,
+  NIGHT_MOON_INTENSITY,
+  NIGHT_LAMP_INTENSITY,
+  NIGHT_LAMP_DISTANCE,
+} from "./config";
+import type { Obstacle, Crate, Bush, MapType } from "./types";
 
 const CRATE_DEFS: { x: number; z: number }[] = [
   { x: 5, z: -10 },
@@ -34,34 +43,64 @@ const BUSH_DEFS: { x: number; z: number; r: number }[] = [
   { x: 0, z: 0, r: 2.2 },
 ];
 
-// ============================================================
-// Lights
-// ============================================================
-export function setupLights(scene: THREE.Scene): void {
-  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-  scene.add(ambient);
+const LAMP_DEFS: { x: number; z: number }[] = [
+  { x: -20, z: -40 },
+  { x: 20, z: -40 },
+  { x: -20, z: -20 },
+  { x: 20, z: -20 },
+  { x: -20, z: 0 },
+  { x: 20, z: 0 },
+  { x: -20, z: 20 },
+  { x: 20, z: 20 },
+  { x: -20, z: 40 },
+  { x: 20, z: 40 },
+  { x: 0, z: -50 },
+  { x: 0, z: 50 },
+];
 
-  const dir = new THREE.DirectionalLight(0xfff2d6, 1.2);
-  dir.position.set(20, 35, -10);
-  dir.castShadow = true;
-  dir.shadow.mapSize.set(2048, 2048);
-  dir.shadow.camera.left = -40;
-  dir.shadow.camera.right = 40;
-  dir.shadow.camera.top = 60;
-  dir.shadow.camera.bottom = -60;
-  dir.shadow.camera.near = 1;
-  dir.shadow.camera.far = 120;
-  dir.shadow.bias = -0.001;
-  scene.add(dir);
+export function setupLights(scene: THREE.Scene, mode: MapType): void {
+  if (mode === "day") {
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
 
-  const fill = new THREE.HemisphereLight(0xa8d8ff, 0x4a3a20, 0.35);
-  scene.add(fill);
+    const dir = new THREE.DirectionalLight(0xfff2d6, 1.2);
+    dir.position.set(20, 35, -10);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.camera.left = -40;
+    dir.shadow.camera.right = 40;
+    dir.shadow.camera.top = 60;
+    dir.shadow.camera.bottom = -60;
+    dir.shadow.camera.near = 1;
+    dir.shadow.camera.far = 120;
+    dir.shadow.bias = -0.001;
+    scene.add(dir);
+
+    const fill = new THREE.HemisphereLight(0xa8d8ff, 0x4a3a20, 0.35);
+    scene.add(fill);
+  } else {
+    const ambient = new THREE.AmbientLight(0x35507a, NIGHT_AMBIENT_INTENSITY);
+    scene.add(ambient);
+
+    const moon = new THREE.DirectionalLight(0x9db8e8, NIGHT_MOON_INTENSITY);
+    moon.position.set(-25, 40, 20);
+    moon.castShadow = true;
+    moon.shadow.mapSize.set(2048, 2048);
+    moon.shadow.camera.left = -40;
+    moon.shadow.camera.right = 40;
+    moon.shadow.camera.top = 60;
+    moon.shadow.camera.bottom = -60;
+    moon.shadow.camera.near = 1;
+    moon.shadow.camera.far = 120;
+    moon.shadow.bias = -0.001;
+    scene.add(moon);
+
+    const fill = new THREE.HemisphereLight(0x2a3a5a, 0x0a0a15, 0.25);
+    scene.add(fill);
+  }
 }
 
-// ============================================================
-// Ground
-// ============================================================
-export function setupGround(scene: THREE.Scene): void {
+export function setupGround(scene: THREE.Scene, mode: MapType): void {
   const grass = createGrassTexture();
   grass.repeat.set(MAP_W / 4, MAP_H / 4);
   const geo = new THREE.PlaneGeometry(MAP_W, MAP_H);
@@ -69,6 +108,7 @@ export function setupGround(scene: THREE.Scene): void {
     map: grass,
     roughness: 1,
     metalness: 0,
+    color: mode === "night" ? 0x6a7c8c : 0xffffff,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.rotation.x = -Math.PI / 2;
@@ -77,7 +117,7 @@ export function setupGround(scene: THREE.Scene): void {
 
   const borderGeo = new THREE.PlaneGeometry(MAP_W + 2, MAP_H + 2);
   const borderMat = new THREE.MeshStandardMaterial({
-    color: 0x2a4a25,
+    color: mode === "night" ? 0x0d1a14 : 0x2a4a25,
     roughness: 1,
   });
   const border = new THREE.Mesh(borderGeo, borderMat);
@@ -87,10 +127,11 @@ export function setupGround(scene: THREE.Scene): void {
   scene.add(border);
 }
 
-// ============================================================
-// Walls (invisible physical + visible fences)
-// ============================================================
-export function setupWalls(scene: THREE.Scene, world: Matter.World): void {
+export function setupWalls(
+  scene: THREE.Scene,
+  world: Matter.World,
+  mode: MapType,
+): void {
   const halfW = MAP_W / 2;
   const halfH = MAP_H / 2;
   const t = 2;
@@ -111,7 +152,7 @@ export function setupWalls(scene: THREE.Scene, world: Matter.World): void {
   walls.forEach((w) => Matter.World.add(world, w));
 
   const fenceMat = new THREE.MeshStandardMaterial({
-    color: 0x553a22,
+    color: mode === "night" ? 0x2e2018 : 0x553a22,
     roughness: 0.95,
   });
   const fenceGeo1 = new THREE.BoxGeometry(MAP_W + 1, 1.2, 0.4);
@@ -131,16 +172,14 @@ export function setupWalls(scene: THREE.Scene, world: Matter.World): void {
   });
 }
 
-// ============================================================
-// Obstacles (stones)
-// ============================================================
 export function setupObstacles(
   scene: THREE.Scene,
   world: Matter.World,
+  mode: MapType,
 ): Obstacle[] {
   const obstacles: Obstacle[] = [];
   const stoneMat = new THREE.MeshStandardMaterial({
-    color: 0x6f7280,
+    color: mode === "night" ? 0x4a4d58 : 0x6f7280,
     roughness: 0.9,
     metalness: 0.05,
   });
@@ -169,9 +208,6 @@ export function setupObstacles(
   return obstacles;
 }
 
-// ============================================================
-// Crates (destructible, drop pickups)
-// ============================================================
 export function setupCrates(
   scene: THREE.Scene,
   world: Matter.World,
@@ -241,13 +277,10 @@ export function setupCrates(
   return crates;
 }
 
-// ============================================================
-// Bushes (stealth zones)
-// ============================================================
-export function setupBushes(scene: THREE.Scene): Bush[] {
+export function setupBushes(scene: THREE.Scene, mode: MapType): Bush[] {
   const bushes: Bush[] = [];
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x2d6a2d,
+    color: mode === "night" ? 0x1c3e1c : 0x2d6a2d,
     roughness: 1,
   });
   for (const d of BUSH_DEFS) {
@@ -275,9 +308,6 @@ export function setupBushes(scene: THREE.Scene): Bush[] {
   return bushes;
 }
 
-// ============================================================
-// Aim overlay (red indicator)
-// ============================================================
 export function setupAimOverlay(scene: THREE.Scene): THREE.Mesh {
   const geo = new THREE.PlaneGeometry(AIM_WIDTH, AIM_LENGTH);
   const mat = new THREE.MeshBasicMaterial({
@@ -293,4 +323,66 @@ export function setupAimOverlay(scene: THREE.Scene): THREE.Mesh {
   mesh.position.y = 0.02;
   scene.add(mesh);
   return mesh;
+}
+
+export function setupStreetLamps(scene: THREE.Scene): THREE.Group[] {
+  const lamps: THREE.Group[] = [];
+
+  const poleMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1d24,
+    roughness: 0.5,
+    metalness: 0.6,
+  });
+  const lampHeadMat = new THREE.MeshStandardMaterial({
+    color: 0x22262e,
+    roughness: 0.4,
+    metalness: 0.5,
+  });
+  const bulbMat = new THREE.MeshStandardMaterial({
+    color: 0xffe8a0,
+    emissive: 0xffe8a0,
+    emissiveIntensity: 4.0,
+  });
+
+  for (const p of LAMP_DEFS) {
+    const grp = new THREE.Group();
+
+    const poleGeo = new THREE.CylinderGeometry(0.08, 0.1, 4.6, 10);
+    const pole = new THREE.Mesh(poleGeo, poleMat);
+    pole.position.y = 2.3;
+    pole.castShadow = true;
+    grp.add(pole);
+
+    const baseGeo = new THREE.CylinderGeometry(0.22, 0.28, 0.4, 10);
+    const base = new THREE.Mesh(baseGeo, poleMat);
+    base.position.y = 0.2;
+    base.castShadow = true;
+    grp.add(base);
+
+    const headGeo = new THREE.BoxGeometry(0.5, 0.22, 0.5);
+    const head = new THREE.Mesh(headGeo, lampHeadMat);
+    head.position.y = 4.7;
+    head.castShadow = true;
+    grp.add(head);
+
+    const bulbGeo = new THREE.SphereGeometry(0.18, 12, 12);
+    const bulb = new THREE.Mesh(bulbGeo, bulbMat);
+    bulb.position.y = 4.55;
+    grp.add(bulb);
+
+    const light = new THREE.PointLight(
+      0xffe8a0,
+      NIGHT_LAMP_INTENSITY,
+      NIGHT_LAMP_DISTANCE,
+      1.6,
+    );
+    light.position.y = 4.5;
+    light.castShadow = false;
+    grp.add(light);
+
+    grp.position.set(p.x, 0, p.z);
+    scene.add(grp);
+    lamps.push(grp);
+  }
+  return lamps;
 }
