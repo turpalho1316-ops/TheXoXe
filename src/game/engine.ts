@@ -586,7 +586,7 @@ private setupAimOverlay() {
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = "__aim";
-  mesh.rotation.x = -Math.PI / 2;
+  mesh.rotation.x = Math.PI / 2;
   mesh.position.y = 0.02;
   this.scene.add(mesh);
   this.aimMesh = mesh;
