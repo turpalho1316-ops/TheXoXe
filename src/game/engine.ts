@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import Matter from "matter-js";
 import {
   createGrassTexture,
@@ -245,6 +246,10 @@ export class Engine {
   private sound = new SoundEngine();
 
   private playerChar!: Character;
+  private playerGLB: THREE.Group | null = null;
+  private playerMixer: THREE.AnimationMixer | null = null;
+  private playerActions: Record<string, THREE.AnimationAction> = {};
+  private playerCurrentAction: string = "";
   private playerBody!: Matter.Body;
   private playerVel = new THREE.Vector2(0, 0);
   private playerFacing = 0;
@@ -573,8 +578,8 @@ export class Engine {
       this.scene.add(grp);
       this.bushes.push({ group: grp, cx: d.x, cz: d.z, radius: d.r });
     }
-  } 
-
+  }
+  
 private setupAimOverlay() {
   const geo = new THREE.PlaneGeometry(AIM_WIDTH, AIM_LENGTH);
   const mat = new THREE.MeshBasicMaterial({
@@ -797,12 +802,70 @@ private setupPlayer() {
   char.group.add(hpBar);
   this.playerHpBar = hpBar;
 
+  this.loadPlayerGLB();
+
   const matterBody = Matter.Bodies.circle(0, 0, 0.55, {
     frictionAir: 0,
     inertia: Infinity,
   });
   Matter.World.add(this.world, matterBody);
   this.playerBody = matterBody;
+}
+
+private loadPlayerGLB() {
+  const loader = new GLTFLoader();
+  loader.load(
+    "models/Soldier.glb",
+    (gltf) => {
+      const model = gltf.scene;
+      model.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) {
+          m.castShadow = true;
+          m.receiveShadow = true;
+        }
+      });
+      model.scale.set(0.55, 0.55, 0.55);
+      model.rotation.y = Math.PI;
+      this.playerGLB = model;
+      this.playerChar.group.add(model);
+
+      this.playerMixer = new THREE.AnimationMixer(model);
+      for (const clip of gltf.animations) {
+        this.playerActions[clip.name] = this.playerMixer.clipAction(clip);
+      }
+
+      this.playerChar.body.visible = false;
+      this.playerChar.head.visible = false;
+      this.playerChar.armL.visible = false;
+      this.playerChar.armR.visible = false;
+      this.playerChar.legL.visible = false;
+      this.playerChar.legR.visible = false;
+    },
+    undefined,
+    (err) => {
+      console.error("GLB load error", err);
+    }
+  );
+}
+
+private updatePlayerAnimation(speed: number, dt: number) {
+  if (!this.playerMixer) return;
+  this.playerMixer.update(dt);
+  let target = "Idle";
+  if (speed > 15) target = "Run";
+  else if (speed > 1) target = "Walk";
+  if (target !== this.playerCurrentAction) {
+    const prev = this.playerActions[this.playerCurrentAction];
+    const next = this.playerActions[target];
+    if (next) {
+      next.reset();
+      next.fadeIn(0.2);
+      next.play();
+      if (prev) prev.fadeOut(0.2);
+      this.playerCurrentAction = target;
+    }
+  }
 }
 
 private spawnEnemies() {
@@ -944,7 +1007,7 @@ private updateMouseAim(e: MouseEvent) {
   dir.normalize();
   this.mouseAimDir = dir;
 }
-
+  
 private rayToGround(worldPoint: THREE.Vector3): THREE.Vector3 | null {
   const camPos = this.camera.position.clone();
   const dir = worldPoint.clone().sub(camPos).normalize();
@@ -1146,7 +1209,7 @@ private removeProjectile(i: number) {
   (p.mesh.material as THREE.Material).dispose();
   this.projectiles.splice(i, 1);
 }
-  
+
 private updatePlayer(dt: number) {
   const keyInput = new THREE.Vector2(0, 0);
   if (this.keys["KeyW"] || this.keys["ArrowUp"]) keyInput.y += 1;
@@ -1195,7 +1258,11 @@ private updatePlayer(dt: number) {
   );
   this.playerChar.group.rotation.y = this.playerFacing;
 
-  this.animateCharacter(this.playerChar, this.playerVel.length(), dt);
+  if (this.playerGLB) {
+    this.updatePlayerAnimation(this.playerVel.length(), dt);
+  } else {
+    this.animateCharacter(this.playerChar, this.playerVel.length(), dt);
+  }
 
   const wasInBush = this.inBush;
   this.inBush = this.isInBush(
@@ -1395,431 +1462,431 @@ private destroyCrate(c: Crate) {
   const kind: "heal" | "damage" = Math.random() < 0.5 ? "heal" : "damage";
   this.spawnPickup(c.cx, c.cz, kind);
 }
-
-private killEnemy(e: Enemy, killerName: string) {
-  e.destroyed = true;
-  Matter.World.remove(this.world, e.body);
-  this.scene.remove(e.char.group);
-  this.kills += 1;
-  this.spawnSparks(
-    e.body.position.x,
-    1.5,
-    e.body.position.y,
-    e.color,
-    16,
-  );
-  this.emitKill(killerName, e.name);
-
-  if (this.kills >= KILL_GOAL) {
-    this.status = "victory";
-    this.destroyed = true;
-    return;
-  }
-
-  const timer = setTimeout(() => {
-    this.respawnTimers.delete(timer);
-    if (this.status !== "playing") return;
-    const spot = this.pickSafeSpawn();
-    this.spawnEnemy(spot.x, spot.z, e.color, e.name);
-    const idx = this.enemies.indexOf(e);
-    if (idx >= 0) this.enemies.splice(idx, 1);
-  }, 2200);
-  this.respawnTimers.add(timer);
-}
-
-private emitKill(killer: string, victim: string) {
-  this.callbacks.onKill?.({
-    id: `k_${performance.now().toFixed(0)}_${Math.random()
-      .toString(36)
-      .slice(2, 6)}`,
-    killer,
-    victim,
-  });
-}
-
-private clearRespawnTimers() {
-  for (const t of this.respawnTimers) clearTimeout(t);
-  this.respawnTimers.clear();
-}
-
-private disposeObject3D(obj: THREE.Object3D) {
-  obj.traverse((node) => {
-    const m = node as THREE.Mesh;
-    if (m.isMesh) {
-      m.geometry?.dispose?.();
-      const mat = m.material as THREE.Material | THREE.Material[];
-      if (Array.isArray(mat)) mat.forEach((mm) => mm.dispose());
-      else mat?.dispose?.();
-    }
-    const s = node as THREE.Sprite;
-    if (s.isSprite && s.material) {
-      s.material.map?.dispose();
-      s.material.dispose();
-    }
-  });
-}
-
-private handlePlayerDeath(killerName: string) {
-  this.destroyed = true;
-  this.status = "defeat";
-  this.emitKill(killerName, this.playerName);
-}
-
-restart() {
-  this.clearRespawnTimers();
-  for (let i = this.projectiles.length - 1; i >= 0; i--) {
-    this.removeProjectile(i);
-  }
-  for (const s of this.sparks) {
-    this.scene.remove(s.mesh);
-    (s.mesh.geometry as THREE.BufferGeometry).dispose();
-    (s.mesh.material as THREE.Material).dispose();
-  }
-  this.sparks = [];
-  for (const f of this.muzzleFlashes) {
-    this.scene.remove(f.light);
-    this.scene.remove(f.glow);
-    (f.glow.geometry as THREE.BufferGeometry).dispose();
-    (f.glow.material as THREE.Material).dispose();
-  }
-  this.muzzleFlashes = [];
-  for (const d of this.damageNumbers) {
-    this.scene.remove(d.sprite);
-    d.sprite.material.map?.dispose();
-    d.sprite.material.dispose();
-  }
-  this.damageNumbers = [];
-  for (let i = this.pickups.length - 1; i >= 0; i--) this.removePickup(i);
-  for (const e of this.enemies) {
-    if (!e.destroyed) Matter.World.remove(this.world, e.body);
+  
+  private killEnemy(e: Enemy, killerName: string) {
+    e.destroyed = true;
+    Matter.World.remove(this.world, e.body);
     this.scene.remove(e.char.group);
-    this.disposeObject3D(e.char.group);
-  }
-  this.enemies = [];
-  for (const c of this.crates) {
-    if (!c.destroyed) Matter.World.remove(this.world, c.body);
-    this.scene.remove(c.mesh);
-    this.disposeObject3D(c.mesh);
-  }
-  this.crates = [];
-  this.setupCrates();
-  this.playerHp = this.playerMaxHp;
-  this.refreshPlayerHpBar();
-  Matter.Body.setPosition(this.playerBody, { x: 0, y: 0 });
-  this.playerVel.set(0, 0);
-  this.playerFacing = 0;
-  this.playerChar.group.position.set(0, 0, 0);
-  this.playerChar.group.rotation.y = 0;
-  this.setCharacterOpacity(this.playerChar, 1.0);
-  this.playerHpBar.material.opacity = 1.0;
-  this.inBush = false;
-  this.bullets = this.bulletMax;
-  this.reloadProgress = [1, 1, 1];
-  this.damageBoost = 1.0;
-  this.damageBoostUntil = 0;
-  this.ultCharge = 0;
-  this.kills = 0;
-  this.destroyed = false;
-  this.status = "playing";
-  this.moveInput.set(0, 0);
-  this.aimInput.set(0, 0);
-  this.aimActive = false;
-  this.mouseAimActive = false;
-  this.mouseAimDir = null;
-  this.spawnEnemies();
-}
-
-private updateEnemies(dt: number) {
-  const now = performance.now() / 1000;
-  const playerVisible = !this.inBush && !this.destroyed;
-  const IDEAL_FAR = 10;
-  const IDEAL_NEAR = 6;
-  const AVOID_RADIUS = 3.5;
-  const halfW = MAP_W / 2 - 2.5;
-  const halfH = MAP_H / 2 - 2.5;
-
-  for (const e of this.enemies) {
-    if (e.destroyed) continue;
-    e.char.group.position.set(e.body.position.x, 0, e.body.position.y);
-
-    const dxRaw = this.playerBody.position.x - e.body.position.x;
-    const dzRaw = this.playerBody.position.y - e.body.position.y;
-    const dist = Math.hypot(dxRaw, dzRaw);
-
-    if (!playerVisible) {
-      Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
-      this.animateCharacter(e.char, 0, dt);
-      continue;
-    }
-
-    const toPlayer = new THREE.Vector2(dxRaw, dzRaw).normalize();
-
-    if (e.strafeUntil < now) {
-      e.strafeDir = Math.random() < 0.5 ? 1 : -1;
-      e.strafeUntil = now + 1.0 + Math.random() * 1.4;
-    }
-    const perp = new THREE.Vector2(
-      -toPlayer.y,
-      toPlayer.x,
-    ).multiplyScalar(e.strafeDir);
-
-    const repulsion = new THREE.Vector2(0, 0);
-    for (const o of this.obstacles) {
-      const ox = e.body.position.x - o.cx;
-      const oz = e.body.position.y - o.cz;
-      const od = Math.hypot(ox, oz);
-      if (od < AVOID_RADIUS && od > 0.001) {
-        const k = (AVOID_RADIUS - od) / AVOID_RADIUS;
-        repulsion.x += (ox / od) * k;
-        repulsion.y += (oz / od) * k;
-      }
-    }
-    for (const c of this.crates) {
-      if (c.destroyed) continue;
-      const ox = e.body.position.x - c.cx;
-      const oz = e.body.position.y - c.cz;
-      const od = Math.hypot(ox, oz);
-      if (od < AVOID_RADIUS && od > 0.001) {
-        const k = (AVOID_RADIUS - od) / AVOID_RADIUS;
-        repulsion.x += (ox / od) * k * 1.15;
-        repulsion.y += (oz / od) * k * 1.15;
-      }
-    }
-    if (e.body.position.x > halfW)
-      repulsion.x -= (e.body.position.x - halfW) * 0.5;
-    if (e.body.position.x < -halfW)
-      repulsion.x += (-halfW - e.body.position.x) * 0.5;
-    if (e.body.position.y > halfH)
-      repulsion.y -= (e.body.position.y - halfH) * 0.5;
-    if (e.body.position.y < -halfH)
-      repulsion.y += (-halfH - e.body.position.y) * 0.5;
-
-    const desired = new THREE.Vector2(0, 0);
-    let targetSpeed = 0;
-    if (dist > IDEAL_FAR) {
-      desired.copy(toPlayer);
-      desired.add(perp.clone().multiplyScalar(0.25));
-      targetSpeed = ENEMY_CHASE_SPEED;
-    } else if (dist < IDEAL_NEAR) {
-      desired.copy(toPlayer).multiplyScalar(-1);
-      desired.add(perp.clone().multiplyScalar(0.4));
-      targetSpeed = ENEMY_BACK_SPEED;
-    } else {
-      desired.copy(perp);
-      desired.add(toPlayer.clone().multiplyScalar(0.15));
-      targetSpeed = ENEMY_BACK_SPEED * 0.85;
-    }
-    desired.add(repulsion.multiplyScalar(1.6));
-
-    let speed = 0;
-    if (desired.lengthSq() > 0.0001) {
-      desired.normalize();
-      Matter.Body.setVelocity(e.body, {
-        x: desired.x * targetSpeed * dt,
-        y: desired.y * targetSpeed * dt,
-      });
-      speed = targetSpeed;
-    } else {
-      Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
-    }
-
-    e.char.group.rotation.y = lerpAngle(
-      e.char.group.rotation.y,
-      Math.atan2(toPlayer.x, toPlayer.y),
-      0.14,
+    this.kills += 1;
+    this.spawnSparks(
+      e.body.position.x,
+      1.5,
+      e.body.position.y,
+      e.color,
+      16,
     );
+    this.emitKill(killerName, e.name);
 
-    this.animateCharacter(e.char, speed, dt);
-
-    if (dist < 13 && now - e.lastShotAt > 1.5) {
-      e.lastShotAt = now;
-      const jitter = (Math.random() - 0.5) * 0.13;
-      const cs = Math.cos(jitter);
-      const sn = Math.sin(jitter);
-      const ad = new THREE.Vector2(
-        toPlayer.x * cs - toPlayer.y * sn,
-        toPlayer.x * sn + toPlayer.y * cs,
-      );
-      this.fireEnemyProjectile(e, ad);
+    if (this.kills >= KILL_GOAL) {
+      this.status = "victory";
+      this.destroyed = true;
+      return;
     }
-  }
-}
 
-private updateReload(dt: number) {
-  if (this.bullets >= this.bulletMax) {
-    this.reloadProgress = [1, 1, 1];
-    return;
+    const timer = setTimeout(() => {
+      this.respawnTimers.delete(timer);
+      if (this.status !== "playing") return;
+      const spot = this.pickSafeSpawn();
+      this.spawnEnemy(spot.x, spot.z, e.color, e.name);
+      const idx = this.enemies.indexOf(e);
+      if (idx >= 0) this.enemies.splice(idx, 1);
+    }, 2200);
+    this.respawnTimers.add(timer);
   }
-  for (let i = 0; i < this.bulletMax; i++) {
-    if (i < this.bullets) {
-      this.reloadProgress[i] = 1;
-    } else if (i === this.bullets) {
-      this.reloadProgress[i] = Math.min(
-        1,
-        this.reloadProgress[i] + dt / this.reloadTime,
-      );
-      if (this.reloadProgress[i] >= 1) {
-        this.bullets += 1;
-        this.reloadProgress[i] = 1;
+
+  private emitKill(killer: string, victim: string) {
+    this.callbacks.onKill?.({
+      id: `k_${performance.now().toFixed(0)}_${Math.random()
+        .toString(36)
+        .slice(2, 6)}`,
+      killer,
+      victim,
+    });
+  }
+
+  private clearRespawnTimers() {
+    for (const t of this.respawnTimers) clearTimeout(t);
+    this.respawnTimers.clear();
+  }
+
+  private disposeObject3D(obj: THREE.Object3D) {
+    obj.traverse((node) => {
+      const m = node as THREE.Mesh;
+      if (m.isMesh) {
+        m.geometry?.dispose?.();
+        const mat = m.material as THREE.Material | THREE.Material[];
+        if (Array.isArray(mat)) mat.forEach((mm) => mm.dispose());
+        else mat?.dispose?.();
       }
-    } else {
-      this.reloadProgress[i] = 0;
-    }
+      const s = node as THREE.Sprite;
+      if (s.isSprite && s.material) {
+        s.material.map?.dispose();
+        s.material.dispose();
+      }
+    });
   }
-}
 
-private spawnMuzzleFlash(x: number, z: number, color: number) {
-  const light = new THREE.PointLight(color, 4, 6);
-  light.position.set(x, 1.2, z);
-  this.scene.add(light);
-  const glow = new THREE.Mesh(
-    new THREE.SphereGeometry(0.45, 10, 10),
-    new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-    }),
-  );
-  glow.position.set(x, 1.2, z);
-  this.scene.add(glow);
-  this.muzzleFlashes.push({
-    light,
-    glow,
-    spawnedAt: this.clock.getElapsedTime(),
-    life: 0.09,
-  });
-}
+  private handlePlayerDeath(killerName: string) {
+    this.destroyed = true;
+    this.status = "defeat";
+    this.emitKill(killerName, this.playerName);
+  }
 
-private updateMuzzleFlashes() {
-  const now = this.clock.getElapsedTime();
-  for (let i = this.muzzleFlashes.length - 1; i >= 0; i--) {
-    const f = this.muzzleFlashes[i];
-    const t = (now - f.spawnedAt) / f.life;
-    if (t >= 1) {
+  restart() {
+    this.clearRespawnTimers();
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      this.removeProjectile(i);
+    }
+    for (const s of this.sparks) {
+      this.scene.remove(s.mesh);
+      (s.mesh.geometry as THREE.BufferGeometry).dispose();
+      (s.mesh.material as THREE.Material).dispose();
+    }
+    this.sparks = [];
+    for (const f of this.muzzleFlashes) {
       this.scene.remove(f.light);
       this.scene.remove(f.glow);
       (f.glow.geometry as THREE.BufferGeometry).dispose();
       (f.glow.material as THREE.Material).dispose();
-      this.muzzleFlashes.splice(i, 1);
-    } else {
-      const k = 1 - t;
-      f.light.intensity = 4 * k;
-      const mat = f.glow.material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.9 * k;
-      const s = 1 + t * 0.6;
-      f.glow.scale.set(s, s, s);
     }
-  }
-}
-
-private spawnSparks(
-  x: number,
-  y: number,
-  z: number,
-  color = 0xffd966,
-  count = 7,
-) {
-  for (let i = 0; i < count; i++) {
-    const geo = new THREE.SphereGeometry(0.08, 6, 6);
-    const mat = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 1,
-      depthWrite: false,
-    });
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
-    this.scene.add(m);
-    const ang = Math.random() * Math.PI * 2;
-    const sp = 4 + Math.random() * 6;
-    this.sparks.push({
-      mesh: m,
-      vx: Math.cos(ang) * sp,
-      vz: Math.sin(ang) * sp,
-      vy: 2 + Math.random() * 5,
-      life: 0.4,
-      spawnedAt: this.clock.getElapsedTime(),
-    });
-  }
-}
-
-private updateSparks(dt: number) {
-  const now = this.clock.getElapsedTime();
-  for (let i = this.sparks.length - 1; i >= 0; i--) {
-    const s = this.sparks[i];
-    const t = (now - s.spawnedAt) / s.life;
-    if (t >= 1) {
-      this.scene.remove(s.mesh);
-      (s.mesh.geometry as THREE.BufferGeometry).dispose();
-      (s.mesh.material as THREE.Material).dispose();
-      this.sparks.splice(i, 1);
-      continue;
-    }
-    s.vy -= 18 * dt;
-    s.mesh.position.x += s.vx * dt;
-    s.mesh.position.y += s.vy * dt;
-    s.mesh.position.z += s.vz * dt;
-    if (s.mesh.position.y < 0.05) {
-      s.mesh.position.y = 0.05;
-      s.vy = 0;
-      s.vx *= 0.6;
-      s.vz *= 0.6;
-    }
-    (s.mesh.material as THREE.MeshBasicMaterial).opacity = 1 - t;
-  }
-}
-
-private spawnDamageNumber(
-  x: number,
-  y: number,
-  z: number,
-  value: number,
-  color = "#ffe066",
-) {
-  if (value <= 0) return;
-  const tex = createDamageNumberTexture(value, color);
-  const mat = new THREE.SpriteMaterial({
-    map: tex,
-    transparent: true,
-    depthTest: false,
-  });
-  const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(2.0, 1.0, 1);
-  sprite.position.set(
-    x + (Math.random() - 0.5) * 0.4,
-    y,
-    z + (Math.random() - 0.5) * 0.4,
-  );
-  this.scene.add(sprite);
-  this.damageNumbers.push({
-    sprite,
-    spawnedAt: this.clock.getElapsedTime(),
-    life: 0.95,
-    startY: sprite.position.y,
-  });
-}
-
-private updateDamageNumbers() {
-  const now = this.clock.getElapsedTime();
-  for (let i = this.damageNumbers.length - 1; i >= 0; i--) {
-    const d = this.damageNumbers[i];
-    const t = (now - d.spawnedAt) / d.life;
-    if (t >= 1) {
+    this.muzzleFlashes = [];
+    for (const d of this.damageNumbers) {
       this.scene.remove(d.sprite);
       d.sprite.material.map?.dispose();
       d.sprite.material.dispose();
-      this.damageNumbers.splice(i, 1);
-      continue;
     }
-    d.sprite.position.y = d.startY + t * 1.8;
-    const fade = t < 0.3 ? 1 : 1 - (t - 0.3) / 0.7;
-    d.sprite.material.opacity = Math.max(0, fade);
-    const scale = 1 + Math.sin(t * Math.PI) * 0.15;
-    d.sprite.scale.set(2.0 * scale, 1.0 * scale, 1);
+    this.damageNumbers = [];
+    for (let i = this.pickups.length - 1; i >= 0; i--) this.removePickup(i);
+    for (const e of this.enemies) {
+      if (!e.destroyed) Matter.World.remove(this.world, e.body);
+      this.scene.remove(e.char.group);
+      this.disposeObject3D(e.char.group);
+    }
+    this.enemies = [];
+    for (const c of this.crates) {
+      if (!c.destroyed) Matter.World.remove(this.world, c.body);
+      this.scene.remove(c.mesh);
+      this.disposeObject3D(c.mesh);
+    }
+    this.crates = [];
+    this.setupCrates();
+    this.playerHp = this.playerMaxHp;
+    this.refreshPlayerHpBar();
+    Matter.Body.setPosition(this.playerBody, { x: 0, y: 0 });
+    this.playerVel.set(0, 0);
+    this.playerFacing = 0;
+    this.playerChar.group.position.set(0, 0, 0);
+    this.playerChar.group.rotation.y = 0;
+    this.setCharacterOpacity(this.playerChar, 1.0);
+    this.playerHpBar.material.opacity = 1.0;
+    this.inBush = false;
+    this.bullets = this.bulletMax;
+    this.reloadProgress = [1, 1, 1];
+    this.damageBoost = 1.0;
+    this.damageBoostUntil = 0;
+    this.ultCharge = 0;
+    this.kills = 0;
+    this.destroyed = false;
+    this.status = "playing";
+    this.moveInput.set(0, 0);
+    this.aimInput.set(0, 0);
+    this.aimActive = false;
+    this.mouseAimActive = false;
+    this.mouseAimDir = null;
+    this.spawnEnemies();
   }
-}
-  
+
+  private updateEnemies(dt: number) {
+    const now = performance.now() / 1000;
+    const playerVisible = !this.inBush && !this.destroyed;
+    const IDEAL_FAR = 10;
+    const IDEAL_NEAR = 6;
+    const AVOID_RADIUS = 3.5;
+    const halfW = MAP_W / 2 - 2.5;
+    const halfH = MAP_H / 2 - 2.5;
+
+    for (const e of this.enemies) {
+      if (e.destroyed) continue;
+      e.char.group.position.set(e.body.position.x, 0, e.body.position.y);
+
+      const dxRaw = this.playerBody.position.x - e.body.position.x;
+      const dzRaw = this.playerBody.position.y - e.body.position.y;
+      const dist = Math.hypot(dxRaw, dzRaw);
+
+      if (!playerVisible) {
+        Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
+        this.animateCharacter(e.char, 0, dt);
+        continue;
+      }
+
+      const toPlayer = new THREE.Vector2(dxRaw, dzRaw).normalize();
+
+      if (e.strafeUntil < now) {
+        e.strafeDir = Math.random() < 0.5 ? 1 : -1;
+        e.strafeUntil = now + 1.0 + Math.random() * 1.4;
+      }
+      const perp = new THREE.Vector2(
+        -toPlayer.y,
+        toPlayer.x,
+      ).multiplyScalar(e.strafeDir);
+
+      const repulsion = new THREE.Vector2(0, 0);
+      for (const o of this.obstacles) {
+        const ox = e.body.position.x - o.cx;
+        const oz = e.body.position.y - o.cz;
+        const od = Math.hypot(ox, oz);
+        if (od < AVOID_RADIUS && od > 0.001) {
+          const k = (AVOID_RADIUS - od) / AVOID_RADIUS;
+          repulsion.x += (ox / od) * k;
+          repulsion.y += (oz / od) * k;
+        }
+      }
+      for (const c of this.crates) {
+        if (c.destroyed) continue;
+        const ox = e.body.position.x - c.cx;
+        const oz = e.body.position.y - c.cz;
+        const od = Math.hypot(ox, oz);
+        if (od < AVOID_RADIUS && od > 0.001) {
+          const k = (AVOID_RADIUS - od) / AVOID_RADIUS;
+          repulsion.x += (ox / od) * k * 1.15;
+          repulsion.y += (oz / od) * k * 1.15;
+        }
+      }
+      if (e.body.position.x > halfW)
+        repulsion.x -= (e.body.position.x - halfW) * 0.5;
+      if (e.body.position.x < -halfW)
+        repulsion.x += (-halfW - e.body.position.x) * 0.5;
+      if (e.body.position.y > halfH)
+        repulsion.y -= (e.body.position.y - halfH) * 0.5;
+      if (e.body.position.y < -halfH)
+        repulsion.y += (-halfH - e.body.position.y) * 0.5;
+
+      const desired = new THREE.Vector2(0, 0);
+      let targetSpeed = 0;
+      if (dist > IDEAL_FAR) {
+        desired.copy(toPlayer);
+        desired.add(perp.clone().multiplyScalar(0.25));
+        targetSpeed = ENEMY_CHASE_SPEED;
+      } else if (dist < IDEAL_NEAR) {
+        desired.copy(toPlayer).multiplyScalar(-1);
+        desired.add(perp.clone().multiplyScalar(0.4));
+        targetSpeed = ENEMY_BACK_SPEED;
+      } else {
+        desired.copy(perp);
+        desired.add(toPlayer.clone().multiplyScalar(0.15));
+        targetSpeed = ENEMY_BACK_SPEED * 0.85;
+      }
+      desired.add(repulsion.multiplyScalar(1.6));
+
+      let speed = 0;
+      if (desired.lengthSq() > 0.0001) {
+        desired.normalize();
+        Matter.Body.setVelocity(e.body, {
+          x: desired.x * targetSpeed * dt,
+          y: desired.y * targetSpeed * dt,
+        });
+        speed = targetSpeed;
+      } else {
+        Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
+      }
+
+      e.char.group.rotation.y = lerpAngle(
+        e.char.group.rotation.y,
+        Math.atan2(toPlayer.x, toPlayer.y),
+        0.14,
+      );
+
+      this.animateCharacter(e.char, speed, dt);
+
+      if (dist < 13 && now - e.lastShotAt > 1.5) {
+        e.lastShotAt = now;
+        const jitter = (Math.random() - 0.5) * 0.13;
+        const cs = Math.cos(jitter);
+        const sn = Math.sin(jitter);
+        const ad = new THREE.Vector2(
+          toPlayer.x * cs - toPlayer.y * sn,
+          toPlayer.x * sn + toPlayer.y * cs,
+        );
+        this.fireEnemyProjectile(e, ad);
+      }
+    }
+  }
+
+  private updateReload(dt: number) {
+    if (this.bullets >= this.bulletMax) {
+      this.reloadProgress = [1, 1, 1];
+      return;
+    }
+    for (let i = 0; i < this.bulletMax; i++) {
+      if (i < this.bullets) {
+        this.reloadProgress[i] = 1;
+      } else if (i === this.bullets) {
+        this.reloadProgress[i] = Math.min(
+          1,
+          this.reloadProgress[i] + dt / this.reloadTime,
+        );
+        if (this.reloadProgress[i] >= 1) {
+          this.bullets += 1;
+          this.reloadProgress[i] = 1;
+        }
+      } else {
+        this.reloadProgress[i] = 0;
+      }
+    }
+  }
+
+  private spawnMuzzleFlash(x: number, z: number, color: number) {
+    const light = new THREE.PointLight(color, 4, 6);
+    light.position.set(x, 1.2, z);
+    this.scene.add(light);
+    const glow = new THREE.Mesh(
+      new THREE.SphereGeometry(0.45, 10, 10),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+      }),
+    );
+    glow.position.set(x, 1.2, z);
+    this.scene.add(glow);
+    this.muzzleFlashes.push({
+      light,
+      glow,
+      spawnedAt: this.clock.getElapsedTime(),
+      life: 0.09,
+    });
+  }
+
+  private updateMuzzleFlashes() {
+    const now = this.clock.getElapsedTime();
+    for (let i = this.muzzleFlashes.length - 1; i >= 0; i--) {
+      const f = this.muzzleFlashes[i];
+      const t = (now - f.spawnedAt) / f.life;
+      if (t >= 1) {
+        this.scene.remove(f.light);
+        this.scene.remove(f.glow);
+        (f.glow.geometry as THREE.BufferGeometry).dispose();
+        (f.glow.material as THREE.Material).dispose();
+        this.muzzleFlashes.splice(i, 1);
+      } else {
+        const k = 1 - t;
+        f.light.intensity = 4 * k;
+        const mat = f.glow.material as THREE.MeshBasicMaterial;
+        mat.opacity = 0.9 * k;
+        const s = 1 + t * 0.6;
+        f.glow.scale.set(s, s, s);
+      }
+    }
+  }
+
+  private spawnSparks(
+    x: number,
+    y: number,
+    z: number,
+    color = 0xffd966,
+    count = 7,
+  ) {
+    for (let i = 0; i < count; i++) {
+      const geo = new THREE.SphereGeometry(0.08, 6, 6);
+      const mat = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 1,
+        depthWrite: false,
+      });
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      this.scene.add(m);
+      const ang = Math.random() * Math.PI * 2;
+      const sp = 4 + Math.random() * 6;
+      this.sparks.push({
+        mesh: m,
+        vx: Math.cos(ang) * sp,
+        vz: Math.sin(ang) * sp,
+        vy: 2 + Math.random() * 5,
+        life: 0.4,
+        spawnedAt: this.clock.getElapsedTime(),
+      });
+    }
+  }
+
+  private updateSparks(dt: number) {
+    const now = this.clock.getElapsedTime();
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const s = this.sparks[i];
+      const t = (now - s.spawnedAt) / s.life;
+      if (t >= 1) {
+        this.scene.remove(s.mesh);
+        (s.mesh.geometry as THREE.BufferGeometry).dispose();
+        (s.mesh.material as THREE.Material).dispose();
+        this.sparks.splice(i, 1);
+        continue;
+      }
+      s.vy -= 18 * dt;
+      s.mesh.position.x += s.vx * dt;
+      s.mesh.position.y += s.vy * dt;
+      s.mesh.position.z += s.vz * dt;
+      if (s.mesh.position.y < 0.05) {
+        s.mesh.position.y = 0.05;
+        s.vy = 0;
+        s.vx *= 0.6;
+        s.vz *= 0.6;
+      }
+      (s.mesh.material as THREE.MeshBasicMaterial).opacity = 1 - t;
+    }
+  }
+
+  private spawnDamageNumber(
+    x: number,
+    y: number,
+    z: number,
+    value: number,
+    color = "#ffe066",
+  ) {
+    if (value <= 0) return;
+    const tex = createDamageNumberTexture(value, color);
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthTest: false,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(2.0, 1.0, 1);
+    sprite.position.set(
+      x + (Math.random() - 0.5) * 0.4,
+      y,
+      z + (Math.random() - 0.5) * 0.4,
+    );
+    this.scene.add(sprite);
+    this.damageNumbers.push({
+      sprite,
+      spawnedAt: this.clock.getElapsedTime(),
+      life: 0.95,
+      startY: sprite.position.y,
+    });
+  }
+
+  private updateDamageNumbers() {
+    const now = this.clock.getElapsedTime();
+    for (let i = this.damageNumbers.length - 1; i >= 0; i--) {
+      const d = this.damageNumbers[i];
+      const t = (now - d.spawnedAt) / d.life;
+      if (t >= 1) {
+        this.scene.remove(d.sprite);
+        d.sprite.material.map?.dispose();
+        d.sprite.material.dispose();
+        this.damageNumbers.splice(i, 1);
+        continue;
+      }
+      d.sprite.position.y = d.startY + t * 1.8;
+      const fade = t < 0.3 ? 1 : 1 - (t - 0.3) / 0.7;
+      d.sprite.material.opacity = Math.max(0, fade);
+      const scale = 1 + Math.sin(t * Math.PI) * 0.15;
+      d.sprite.scale.set(2.0 * scale, 1.0 * scale, 1);
+    }
+  }
+
   private spawnPickup(x: number, z: number, kind: "heal" | "damage") {
     const grp = new THREE.Group();
     const color = kind === "heal" ? 0x55ff66 : 0xff8855;
