@@ -1,9 +1,29 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import nipplejs from "nipplejs";
 import { Engine, type EngineState } from "./engine";
 import LoginScreen from "./LoginScreen";
 import HUD, { type KillFeedEntry } from "./HUD";
 import type { MapType } from "./types";
+import {
+  loadSave,
+  saveGame,
+  addRewards,
+  progressMission,
+  buyPlayerSkin,
+  buyWolfSkin,
+  equipPlayerSkin,
+  equipWolfSkin,
+  getPlayerSkin,
+  getWolfSkin,
+  xpToNextLevel,
+  type SaveData,
+} from "./save";
+import {
+  COINS_PER_KILL,
+  COINS_PER_WIN,
+  XP_PER_KILL,
+  XP_PER_WIN,
+} from "./config";
 
 const KILL_FEED_TTL_MS = 2500;
 
@@ -25,11 +45,14 @@ export default function Game() {
   const leftJoyRef = useRef<NippleManager | null>(null);
   const rightJoyRef = useRef<NippleManager | null>(null);
   const killTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const saveRef = useRef<SaveData>(loadSave());
+  const statsRef = useRef({ killsThisMatch: 0, petKillsThisMatch: 0 });
 
   const [started, setStarted] = useState(false);
   const [playerName, setPlayerName] = useState("");
   const [mapType, setMapType] = useState<MapType>("day");
   const [killFeed, setKillFeed] = useState<KillFeedEntry[]>([]);
+  const [save, setSave] = useState<SaveData>(saveRef.current);
   const [hudState, setHudState] = useState<EngineState>({
     hp: 9000,
     maxHp: 9000,
@@ -46,11 +69,20 @@ export default function Game() {
     status: "playing",
   });
 
+  const persist = useCallback((data: SaveData) => {
+    saveRef.current = data;
+    setSave(data);
+    saveGame(data);
+  }, []);
+
   const handleUlt = () => engineRef.current?.useUlt();
+
   const handleRetry = () => {
     for (const t of killTimersRef.current) clearTimeout(t);
     killTimersRef.current.clear();
     setKillFeed([]);
+    statsRef.current.killsThisMatch = 0;
+    statsRef.current.petKillsThisMatch = 0;
     engineRef.current?.restart();
   };
 
@@ -58,18 +90,59 @@ export default function Game() {
     if (!started) return;
     if (!containerRef.current) return;
 
-    const engine = new Engine(containerRef.current, playerName, mapType, {
-      onStateChange: (s) => setHudState(s),
-      onKill: (ev) => {
-        const at = performance.now();
-        setKillFeed((prev) => [...prev, { ...ev, at }]);
-        const timer = setTimeout(() => {
-          killTimersRef.current.delete(timer);
-          setKillFeed((prev) => prev.filter((e) => e.id !== ev.id));
-        }, KILL_FEED_TTL_MS + 600);
-        killTimersRef.current.add(timer);
+    const playerSkin = getPlayerSkin(saveRef.current.currentPlayerSkin);
+    const wolfSkin = getWolfSkin(saveRef.current.currentWolfSkin);
+
+    const engine = new Engine(
+      containerRef.current,
+      playerName,
+      mapType,
+      playerSkin.glbPath,
+      wolfSkin.id,
+      {
+        onStateChange: (s) => {
+          setHudState(s);
+          if (s.status === "victory" && statsRef.current.killsThisMatch >= 0) {
+            const finalKills = statsRef.current.killsThisMatch;
+            const petKills = statsRef.current.petKillsThisMatch;
+            let data = saveRef.current;
+            data = addRewards(
+              data,
+              finalKills * COINS_PER_KILL + COINS_PER_WIN,
+              finalKills * XP_PER_KILL + XP_PER_WIN,
+            );
+            const winRes = progressMission(data, "wins", 1);
+            data = winRes.data;
+            if (mapType === "night") {
+              const nr = progressMission(data, "nightWins", 1);
+              data = nr.data;
+            }
+            if (petKills > 0) {
+              const pr = progressMission(data, "petKills", petKills);
+              data = pr.data;
+            }
+            persist(data);
+          }
+        },
+        onKill: (ev) => {
+          const at = performance.now();
+          setKillFeed((prev) => [...prev, { ...ev, at }]);
+          const timer = setTimeout(() => {
+            killTimersRef.current.delete(timer);
+            setKillFeed((prev) => prev.filter((e) => e.id !== ev.id));
+          }, KILL_FEED_TTL_MS + 600);
+          killTimersRef.current.add(timer);
+
+          if (ev.killer === playerName) {
+            statsRef.current.killsThisMatch += 1;
+          } else if (ev.killer === "Волк") {
+            statsRef.current.petKillsThisMatch += 1;
+          }
+          const kr = progressMission(saveRef.current, "kills", 1);
+          persist(kr.data);
+        },
       },
-    });
+    );
     engineRef.current = engine;
     engine.start();
 
@@ -131,12 +204,29 @@ export default function Game() {
       for (const t of killTimersRef.current) clearTimeout(t);
       killTimersRef.current.clear();
     };
-  }, [started, playerName, mapType]);
+  }, [started, playerName, mapType, persist]);
 
   const handleStart = (name: string, map: MapType) => {
     setPlayerName(name);
     setMapType(map);
+    statsRef.current.killsThisMatch = 0;
+    statsRef.current.petKillsThisMatch = 0;
     setStarted(true);
+  };
+
+  const handleBuyPlayer = (id: string) => {
+    const next = buyPlayerSkin(saveRef.current, id);
+    if (next) persist(next);
+  };
+  const handleBuyWolf = (id: string) => {
+    const next = buyWolfSkin(saveRef.current, id);
+    if (next) persist(next);
+  };
+  const handleEquipPlayer = (id: string) => {
+    persist(equipPlayerSkin(saveRef.current, id));
+  };
+  const handleEquipWolf = (id: string) => {
+    persist(equipWolfSkin(saveRef.current, id));
   };
 
   return (
@@ -157,6 +247,10 @@ export default function Game() {
           killFeed={killFeed}
           onUlt={handleUlt}
           onRetry={handleRetry}
+          coins={save.coins}
+          level={save.level}
+          xp={save.xp}
+          xpMax={xpToNextLevel(save.level)}
         />
       )}
 
@@ -191,7 +285,16 @@ export default function Game() {
         }}
       />
 
-      {!started && <LoginScreen onStart={handleStart} />}
+      {!started && (
+        <LoginScreen
+          onStart={handleStart}
+          save={save}
+          onBuyPlayer={handleBuyPlayer}
+          onBuyWolf={handleBuyWolf}
+          onEquipPlayer={handleEquipPlayer}
+          onEquipWolf={handleEquipWolf}
+        />
+      )}
     </div>
   );
 }
