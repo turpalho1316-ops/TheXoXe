@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import Matter from "matter-js";
-import { createHpBarTexture } from "./textures";
+import { createHpBarTexture, prewarmCommonTextures } from "./textures";
 import { SoundEngine } from "./sound";
+import { prewarmBubbles } from "./bots_dialogues";
 import {
   MODEL_SCALE,
   PLAYER_HP,
@@ -80,11 +81,6 @@ import {
 } from "./ai";
 import { updatePet, damagePet, respawnPet } from "./pet";
 
-// ============================================================
-// PROJECTILE POOL
-// Bullets are pre-created once. Spawning a shot just moves an
-// existing mesh — no geometry/material allocation at runtime.
-// ============================================================
 const POOL_SIZE_NORMAL = 40;
 const POOL_SIZE_ULT = 6;
 
@@ -214,7 +210,6 @@ export class Engine {
   private damageNumbers: DamageNumber[] = [];
   private pet: Pet | null = null;
 
-  // ---- Projectile pool ----
   private poolNormalMesh: THREE.Mesh[] = [];
   private poolNormalFree: number[] = [];
   private poolUltMesh: THREE.Mesh[] = [];
@@ -251,6 +246,10 @@ export class Engine {
 
     this.state = this.makeStateSnapshot();
 
+    // Prewarm all 2D textures before ANY rendering happens
+    prewarmCommonTextures();
+    prewarmBubbles();
+
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
@@ -275,7 +274,6 @@ export class Engine {
     this.engine = Matter.Engine.create({ gravity: { x: 0, y: 0, scale: 0 } });
     this.world = this.engine.world;
 
-    // Build the bullet pool FIRST so shader compile picks it up
     this.buildProjectilePool();
 
     setupLights(this.scene, mapType);
@@ -297,7 +295,6 @@ export class Engine {
 
     this.aimMesh.visible = false;
 
-    // Final warm-up — compile every material/shader used in the scene
     try {
       this.renderer.compile(this.scene, this.camera);
     } catch (e) {
@@ -305,9 +302,6 @@ export class Engine {
     }
   }
 
-  // ============================================================
-  // Bullet pool
-  // ============================================================
   private buildProjectilePool() {
     const normalGeo = new THREE.SphereGeometry(0.25, 10, 10);
     const ultGeo = new THREE.SphereGeometry(0.55, 14, 14);
@@ -348,7 +342,7 @@ export class Engine {
       this.poolUltFree.push(i);
     }
   }
-  
+
   private setupPlayer() {
     const char = buildCharacter(0x3aa3ff, "player");
     this.playerChar = char;
@@ -786,9 +780,6 @@ export class Engine {
     this.sound.playShot(0.5);
   }
 
-  // ============================================================
-  // spawnProjectile — now uses the pool. Zero allocations.
-  // ============================================================
   private spawnProjectile(opts: {
     px: number;
     pz: number;
@@ -801,14 +792,12 @@ export class Engine {
     ownerName: string;
   }) {
     const usePool = opts.ult ? this.poolUltFree : this.poolNormalFree;
-    if (usePool.length === 0) return; // pool exhausted — silently skip
+    if (usePool.length === 0) return;
 
-    // For normal pool, choose the correct half: 0..19 player, 20..39 enemy
     let poolIdx: number;
     if (opts.ult) {
       poolIdx = usePool.shift()!;
     } else {
-      // Take from player half if fromPlayer, otherwise enemy half
       const isPlayerHalf = (i: number) => i < POOL_SIZE_NORMAL / 2;
       const idxInFree = usePool.findIndex((i) =>
         opts.fromPlayer ? isPlayerHalf(i) : !isPlayerHalf(i),
@@ -847,14 +836,10 @@ export class Engine {
     });
   }
 
-  // ============================================================
-  // removeProjectile — returns mesh back to the pool
-  // ============================================================
   private removeProjectile(i: number) {
     const p = this.projectiles[i];
     Matter.World.remove(this.world, p.body);
 
-    // Find which pool this mesh belongs to and return it
     if (p.ult) {
       const idx = this.poolUltMesh.indexOf(p.mesh);
       if (idx >= 0) {
@@ -873,7 +858,7 @@ export class Engine {
 
     this.projectiles.splice(i, 1);
   }
-
+  
   private updatePlayer(dt: number) {
     const keyInput = new THREE.Vector2(0, 0);
     if (this.keys["KeyW"] || this.keys["ArrowUp"]) keyInput.y += 1;
@@ -1276,7 +1261,6 @@ export class Engine {
     this.muzzleFlashes = [];
     for (const d of this.damageNumbers) {
       this.scene.remove(d.sprite);
-      d.sprite.material.map?.dispose();
       d.sprite.material.dispose();
     }
     this.damageNumbers = [];
