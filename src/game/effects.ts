@@ -3,7 +3,7 @@ import { createDamageNumberTexture } from "./textures";
 import type { MuzzleFlash, Spark, DamageNumber, Pickup } from "./types";
 
 // ============================================================
-// Muzzle flash
+// Muzzle flash — no PointLight, only a glowing sphere
 // ============================================================
 export function spawnMuzzleFlash(
   scene: THREE.Scene,
@@ -13,9 +13,8 @@ export function spawnMuzzleFlash(
   color: number,
   now: number,
 ): void {
-  const light = new THREE.PointLight(color, 4, 6);
-  light.position.set(x, 1.2, z);
-  scene.add(light);
+  // Reuse a dummy light (0 intensity) so type stays compatible
+  const light = new THREE.PointLight(color, 0, 0);
   const glow = new THREE.Mesh(
     new THREE.SphereGeometry(0.45, 10, 10),
     new THREE.MeshBasicMaterial({
@@ -23,6 +22,7 @@ export function spawnMuzzleFlash(
       transparent: true,
       opacity: 0.9,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
     }),
   );
   glow.position.set(x, 1.2, z);
@@ -39,14 +39,12 @@ export function updateMuzzleFlashes(
     const f = flashes[i];
     const t = (now - f.spawnedAt) / f.life;
     if (t >= 1) {
-      scene.remove(f.light);
       scene.remove(f.glow);
       (f.glow.geometry as THREE.BufferGeometry).dispose();
       (f.glow.material as THREE.Material).dispose();
       flashes.splice(i, 1);
     } else {
       const k = 1 - t;
-      f.light.intensity = 4 * k;
       const mat = f.glow.material as THREE.MeshBasicMaterial;
       mat.opacity = 0.9 * k;
       const s = 1 + t * 0.6;
@@ -123,8 +121,12 @@ export function updateSparks(
 }
 
 // ============================================================
-// Damage numbers (floating text)
+// Damage numbers — smaller, faster fade
 // ============================================================
+const DMG_LIFE = 0.75;
+const DMG_SCALE_X = 1.35;
+const DMG_SCALE_Y = 0.68;
+
 export function spawnDamageNumber(
   scene: THREE.Scene,
   numbers: DamageNumber[],
@@ -143,7 +145,7 @@ export function spawnDamageNumber(
     depthTest: false,
   });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(2.0, 1.0, 1);
+  sprite.scale.set(DMG_SCALE_X, DMG_SCALE_Y, 1);
   sprite.position.set(
     x + (Math.random() - 0.5) * 0.4,
     y,
@@ -153,7 +155,7 @@ export function spawnDamageNumber(
   numbers.push({
     sprite,
     spawnedAt: now,
-    life: 0.95,
+    life: DMG_LIFE,
     startY: sprite.position.y,
   });
 }
@@ -173,16 +175,16 @@ export function updateDamageNumbers(
       numbers.splice(i, 1);
       continue;
     }
-    d.sprite.position.y = d.startY + t * 1.8;
+    d.sprite.position.y = d.startY + t * 1.5;
     const fade = t < 0.3 ? 1 : 1 - (t - 0.3) / 0.7;
     d.sprite.material.opacity = Math.max(0, fade);
     const scale = 1 + Math.sin(t * Math.PI) * 0.15;
-    d.sprite.scale.set(2.0 * scale, 1.0 * scale, 1);
+    d.sprite.scale.set(DMG_SCALE_X * scale, DMG_SCALE_Y * scale, 1);
   }
 }
 
 // ============================================================
-// Pickups (heal / damage boost drops)
+// Pickups
 // ============================================================
 export function spawnPickup(
   scene: THREE.Scene,
