@@ -22,6 +22,7 @@ import {
   AIM_LENGTH,
   CAM_VIEW_HEIGHT,
   CAM_DIST,
+  CAM_LERP,
   RELOAD_TIME,
 } from "./config";
 import type {
@@ -49,7 +50,6 @@ import {
   animateCharacter,
   setCharacterOpacity,
   buildPet,
-  animatePet,
 } from "./characters";
 import {
   setupLights,
@@ -240,7 +240,7 @@ export class Engine {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = mapType === "day";
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setClearColor(mapType === "night" ? 0x0a1220 : 0x87a965);
@@ -279,6 +279,13 @@ export class Engine {
     this.bindEvents();
 
     this.aimMesh.visible = false;
+
+    // Warm-up: compile all shaders once to avoid first-shot stutter
+    try {
+      this.renderer.compile(this.scene, this.camera);
+    } catch (e) {
+      console.warn("Shader warm-up failed", e);
+    }
   }
 
   private setupPlayer() {
@@ -359,6 +366,12 @@ export class Engine {
           if (!keep.has(child)) child.visible = false;
         }
         this.playerChar.shadow.visible = true;
+
+        try {
+          this.renderer.compile(this.scene, this.camera);
+        } catch (e) {
+          /* ignore */
+        }
       },
       undefined,
       (err) => {
@@ -371,7 +384,7 @@ export class Engine {
     if (!this.playerMixer) return;
     this.playerMixer.update(dt);
     let target = "Idle";
-    if (speed > 15) target = "Run";
+    if (speed > 12) target = "Run";
     else if (speed > 1) target = "Walk";
     if (target !== this.playerCurrentAction) {
       const prev = this.playerActions[this.playerCurrentAction];
@@ -983,13 +996,9 @@ export class Engine {
           // ---------- Enemy bullets: hit player OR pet ----------
           let hitAnything = false;
 
-          // Player
           const dxp = nx - this.playerBody.position.x;
           const dzp = nz - this.playerBody.position.y;
-          if (
-            dxp * dxp + dzp * dzp < 0.65 * 0.65 &&
-            !this.destroyed
-          ) {
+          if (dxp * dxp + dzp * dzp < 0.65 * 0.65 && !this.destroyed) {
             this.playerHp = Math.max(0, this.playerHp - p.damage);
             this.refreshPlayerHpBar();
             if (this.playerHp <= 0) this.handlePlayerDeath(p.ownerName);
@@ -998,12 +1007,7 @@ export class Engine {
             hitAnything = true;
           }
 
-          // Pet
-          if (
-            !hitAnything &&
-            this.pet &&
-            this.pet.alive
-          ) {
+          if (!hitAnything && this.pet && this.pet.alive) {
             const dxpt = nx - this.pet.body.position.x;
             const dzpt = nz - this.pet.body.position.y;
             if (dxpt * dxpt + dzpt * dzpt < 0.65 * 0.65) {
@@ -1249,7 +1253,6 @@ export class Engine {
     this.mouseAimActive = false;
     this.mouseAimDir = null;
 
-    // Respawn pet alongside player
     if (this.pet) {
       respawnPet(this.pet, 1.5, 1.5);
     }
@@ -1325,7 +1328,7 @@ export class Engine {
     if (snap) {
       this.camera.position.copy(desired);
     } else {
-      this.camera.position.lerp(desired, 0.12);
+      this.camera.position.lerp(desired, CAM_LERP);
     }
     this.camera.lookAt(target);
   }
@@ -1344,6 +1347,8 @@ export class Engine {
       destroyed: this.destroyed,
       sound: this.sound,
       pet: this.pet,
+      damageNumbers: this.damageNumbers,
+      sparks: this.sparks,
       fireEnemyProjectile: (e, d) => this.fireEnemyProjectile(e, d),
       animateCharacter: (c, s, dt) => animateCharacter(c, s, dt),
       showBubbleFor: (e, text) =>
@@ -1394,7 +1399,6 @@ export class Engine {
       updateEnemies(ctx, dt, lerpAngle);
       updatePet(ctx, dt, lerpAngle);
 
-      // Handle pet bites → refresh enemy hp bars
       for (const e of this.enemies) {
         const eAny = e as Enemy & { _petBiteDamage?: number };
         if (eAny._petBiteDamage !== undefined) {
