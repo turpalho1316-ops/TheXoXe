@@ -185,6 +185,14 @@ export class Engine {
   private playerHpBar!: THREE.Sprite;
   private inBush = false;
 
+  private skinGlbPath: string;
+  private wolfSkinId: string;
+
+  private rigClips: THREE.AnimationClip[] = [];
+  private rigLoaded = false;
+  private rigLoading = false;
+  private pendingPlayerGLTF: any = null;
+
   private bullets = 3;
   private bulletMax = 3;
   private reloadTime = RELOAD_TIME;
@@ -237,16 +245,19 @@ export class Engine {
     container: HTMLElement,
     playerName: string,
     mapType: MapType,
+    skinGlbPath: string,
+    wolfSkinId: string,
     callbacks: EngineCallbacks,
   ) {
     this.container = container;
     this.playerName = playerName || "Player";
     this.mapType = mapType;
+    this.skinGlbPath = skinGlbPath;
+    this.wolfSkinId = wolfSkinId;
     this.callbacks = callbacks;
 
     this.state = this.makeStateSnapshot();
 
-    // Prewarm all 2D textures before ANY rendering happens
     prewarmCommonTextures();
     prewarmBubbles();
 
@@ -365,6 +376,7 @@ export class Engine {
     char.group.add(hpBar);
     this.playerHpBar = hpBar;
 
+    this.loadRigAnimations();
     this.loadPlayerGLB();
 
     const matterBody = Matter.Bodies.circle(0, 0, 0.55, {
@@ -376,7 +388,7 @@ export class Engine {
   }
 
   private setupPet() {
-    const pet = buildPet();
+    const pet = buildPet(this.wolfSkinId);
     this.pet = pet;
     this.scene.add(pet.group);
 
@@ -390,66 +402,141 @@ export class Engine {
     Matter.Body.setPosition(body, { x: 1.5, y: 1.5 });
   }
 
+  private loadRigAnimations() {
+    if (this.rigLoading || this.rigLoaded) return;
+    this.rigLoading = true;
+    const loader = new GLTFLoader();
+    const collected: THREE.AnimationClip[] = [];
+    let done = 0;
+    const finish = () => {
+      done++;
+      if (done >= 2) {
+        this.rigClips = collected;
+        this.rigLoaded = true;
+        this.rigLoading = false;
+        if (this.pendingPlayerGLTF) {
+          this.applyPlayerGLTF(this.pendingPlayerGLTF);
+          this.pendingPlayerGLTF = null;
+        }
+      }
+    };
+    loader.load(
+      "models/skins/Rig_Medium_General.glb",
+      (gltf) => {
+        collected.push(...gltf.animations);
+        finish();
+      },
+      undefined,
+      () => finish(),
+    );
+    loader.load(
+      "models/skins/Rig_Medium_MovementBasic.glb",
+      (gltf) => {
+        collected.push(...gltf.animations);
+        finish();
+      },
+      undefined,
+      () => finish(),
+    );
+  }
+
   private loadPlayerGLB() {
     const loader = new GLTFLoader();
     loader.load(
-      "models/Soldier.glb",
+      this.skinGlbPath,
       (gltf) => {
-        const model = gltf.scene;
-        model.traverse((o) => {
-          const m = o as THREE.Mesh;
-          if (m.isMesh) {
-            m.castShadow = true;
-            m.receiveShadow = true;
-          }
-        });
-        model.scale.set(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE);
-        model.rotation.y = Math.PI;
-        this.playerGLB = model;
-        this.playerChar.group.add(model);
-
-        this.playerMixer = new THREE.AnimationMixer(model);
-        for (const clip of gltf.animations) {
-          this.playerActions[clip.name] = this.playerMixer.clipAction(clip);
-        }
-
-        const keep = new Set<THREE.Object3D>();
-        keep.add(this.playerHpBar);
-        keep.add(model);
-        keep.add(this.playerChar.shadow);
-        for (const child of [...this.playerChar.group.children]) {
-          if (!keep.has(child)) child.visible = false;
-        }
-        this.playerChar.shadow.visible = true;
-
-        try {
-          this.renderer.compile(this.scene, this.camera);
-        } catch (e) {
-          /* ignore */
+        if (this.rigLoaded) {
+          this.applyPlayerGLTF(gltf);
+        } else {
+          this.pendingPlayerGLTF = gltf;
         }
       },
       undefined,
       (err) => {
-        console.error("GLB load error", err);
+        console.error("Player GLB load error", err);
       },
     );
+  }
+
+  private applyPlayerGLTF(gltf: any) {
+    const model = gltf.scene as THREE.Group;
+    model.traverse((o: THREE.Object3D) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) {
+        m.castShadow = true;
+        m.receiveShadow = true;
+      }
+    });
+    model.scale.set(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE);
+    model.rotation.y = Math.PI;
+    this.playerGLB = model;
+    this.playerChar.group.add(model);
+
+    const clips: THREE.AnimationClip[] =
+      gltf.animations && gltf.animations.length > 0
+        ? gltf.animations
+        : this.rigClips;
+
+    if (clips.length > 0) {
+      this.playerMixer = new THREE.AnimationMixer(model);
+      for (const clip of clips) {
+        this.playerActions[clip.name] = this.playerMixer.clipAction(clip);
+      }
+    }
+
+    const keep = new Set<THREE.Object3D>();
+    keep.add(this.playerHpBar);
+    keep.add(model);
+    keep.add(this.playerChar.shadow);
+    for (const child of [...this.playerChar.group.children]) {
+      if (!keep.has(child)) child.visible = false;
+    }
+    this.playerChar.shadow.visible = true;
+
+    try {
+      this.renderer.compile(this.scene, this.camera);
+    } catch (e) {
+      // ignore
+    }
   }
 
   private updatePlayerAnimation(speed: number, dt: number) {
     if (!this.playerMixer) return;
     this.playerMixer.update(dt);
-    let target = "Idle";
-    if (speed > 12) target = "Run";
-    else if (speed > 1) target = "Walk";
-    if (target !== this.playerCurrentAction) {
-      const prev = this.playerActions[this.playerCurrentAction];
-      const next = this.playerActions[target];
-      if (next) {
-        next.reset();
-        next.fadeIn(0.2);
-        next.play();
-        if (prev) prev.fadeOut(0.2);
-        this.playerCurrentAction = target;
+
+    const findAction = (...names: string[]) => {
+      for (const n of names) {
+        for (const key of Object.keys(this.playerActions)) {
+          if (key.toLowerCase().includes(n.toLowerCase())) {
+            return this.playerActions[key];
+          }
+        }
+      }
+      return undefined;
+    };
+
+    let target: THREE.AnimationAction | undefined;
+    if (speed > 12) {
+      target =
+        findAction("run", "sprint", "jog") ??
+        findAction("walk", "walking", "move");
+    } else if (speed > 1) {
+      target =
+        findAction("walk", "walking", "move") ??
+        findAction("run", "idle");
+    } else {
+      target = findAction("idle", "stand");
+    }
+
+    if (target && target !== findAction(this.playerCurrentAction)) {
+      const name = target.getClip().name;
+      if (name !== this.playerCurrentAction) {
+        const prev = this.playerActions[this.playerCurrentAction];
+        target.reset();
+        target.fadeIn(0.2);
+        target.play();
+        if (prev && prev !== target) prev.fadeOut(0.2);
+        this.playerCurrentAction = name;
       }
     }
   }
