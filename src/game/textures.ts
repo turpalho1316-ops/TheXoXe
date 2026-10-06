@@ -1,6 +1,12 @@
 import * as THREE from "three";
 
+// ============================================================
+// Grass texture — created once
+// ============================================================
+let _grassTex: THREE.Texture | null = null;
+
 export function createGrassTexture(): THREE.Texture {
+  if (_grassTex) return _grassTex;
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -50,19 +56,47 @@ export function createGrassTexture(): THREE.Texture {
     ctx.fill();
   }
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.anisotropy = 8;
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _grassTex = tex;
+  return tex;
 }
+
+// ============================================================
+// HP bar texture cache
+// Key = `${name}_${hp}_${maxHp}` — cached forever
+// ============================================================
+const hpBarCache = new Map<string, THREE.Texture>();
+const HP_CACHE_LIMIT = 200;
 
 export function createHpBarTexture(
   hp: number,
   maxHp: number,
   name: string,
 ): THREE.Texture {
+  const key = `${name}_${Math.round(hp)}_${Math.round(maxHp)}`;
+  const cached = hpBarCache.get(key);
+  if (cached) return cached;
+
+  const tex = renderHpBar(hp, maxHp, name);
+  hpBarCache.set(key, tex);
+
+  // Simple LRU trim
+  if (hpBarCache.size > HP_CACHE_LIMIT) {
+    const firstKey = hpBarCache.keys().next().value;
+    if (firstKey !== undefined) {
+      const old = hpBarCache.get(firstKey);
+      old?.dispose();
+      hpBarCache.delete(firstKey);
+    }
+  }
+  return tex;
+}
+
+function renderHpBar(hp: number, maxHp: number, name: string): THREE.Texture {
   const w = 320;
   const h = 116;
   const canvas = document.createElement("canvas");
@@ -127,10 +161,35 @@ export function createHpBarTexture(
   return tex;
 }
 
+// ============================================================
+// Damage number texture cache
+// ============================================================
+const dmgCache = new Map<string, THREE.Texture>();
+const DMG_CACHE_LIMIT = 300;
+
 export function createDamageNumberTexture(
   value: number,
   color = "#ffe066",
 ): THREE.Texture {
+  const key = `${Math.round(value)}_${color}`;
+  const cached = dmgCache.get(key);
+  if (cached) return cached;
+
+  const tex = renderDamageNumber(value, color);
+  dmgCache.set(key, tex);
+
+  if (dmgCache.size > DMG_CACHE_LIMIT) {
+    const firstKey = dmgCache.keys().next().value;
+    if (firstKey !== undefined) {
+      const old = dmgCache.get(firstKey);
+      old?.dispose();
+      dmgCache.delete(firstKey);
+    }
+  }
+  return tex;
+}
+
+function renderDamageNumber(value: number, color: string): THREE.Texture {
   const w = 192;
   const h = 96;
   const canvas = document.createElement("canvas");
@@ -154,6 +213,9 @@ export function createDamageNumberTexture(
   return tex;
 }
 
+// ============================================================
+// Helpers
+// ============================================================
 function lerpRgb(
   a: [number, number, number],
   b: [number, number, number],
@@ -183,4 +245,27 @@ function roundedRect(
   ctx.arcTo(x, y + h, x, y, rr);
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
+}
+
+// ============================================================
+// Warm-up — pre-render common textures so the first usage
+// never has to allocate or upload anything.
+// ============================================================
+export function prewarmCommonTextures(): void {
+  // Common HP bar values for player and bots
+  createHpBarTexture(9000, 9000, "Player");
+  createHpBarTexture(700, 700, "Якарь");
+  createHpBarTexture(700, 700, "Веин");
+  createHpBarTexture(700, 700, "Философ");
+  createHpBarTexture(700, 700, "Патриций");
+  createHpBarTexture(800, 800, "Волк");
+
+  // Common damage values
+  const colors = ["#ff8866", "#fff066", "#ffd966", "#ff5a3a", "#ff3020"];
+  const values = [20, 40, 60, 80, 100, 200, 220, 350, 800];
+  for (const v of values) {
+    for (const c of colors) {
+      createDamageNumberTexture(v, c);
+    }
+  }
 }
