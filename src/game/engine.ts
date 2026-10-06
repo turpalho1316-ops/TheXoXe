@@ -80,6 +80,14 @@ import {
 } from "./ai";
 import { updatePet, damagePet, respawnPet } from "./pet";
 
+// ============================================================
+// PROJECTILE POOL
+// Bullets are pre-created once. Spawning a shot just moves an
+// existing mesh — no geometry/material allocation at runtime.
+// ============================================================
+const POOL_SIZE_NORMAL = 40;
+const POOL_SIZE_ULT = 6;
+
 type BotDef = {
   name: string;
   color: number;
@@ -206,6 +214,12 @@ export class Engine {
   private damageNumbers: DamageNumber[] = [];
   private pet: Pet | null = null;
 
+  // ---- Projectile pool ----
+  private poolNormalMesh: THREE.Mesh[] = [];
+  private poolNormalFree: number[] = [];
+  private poolUltMesh: THREE.Mesh[] = [];
+  private poolUltFree: number[] = [];
+
   private keys: Record<string, boolean> = {};
   private mouseAimDir: THREE.Vector2 | null = null;
   private mouseAimActive = false;
@@ -261,6 +275,9 @@ export class Engine {
     this.engine = Matter.Engine.create({ gravity: { x: 0, y: 0, scale: 0 } });
     this.world = this.engine.world;
 
+    // Build the bullet pool FIRST so shader compile picks it up
+    this.buildProjectilePool();
+
     setupLights(this.scene, mapType);
     setupGround(this.scene, mapType);
     setupWalls(this.scene, this.world, mapType);
@@ -280,7 +297,7 @@ export class Engine {
 
     this.aimMesh.visible = false;
 
-    // Warm-up: compile all shaders once to avoid first-shot stutter
+    // Final warm-up — compile every material/shader used in the scene
     try {
       this.renderer.compile(this.scene, this.camera);
     } catch (e) {
@@ -288,6 +305,50 @@ export class Engine {
     }
   }
 
+  // ============================================================
+  // Bullet pool
+  // ============================================================
+  private buildProjectilePool() {
+    const normalGeo = new THREE.SphereGeometry(0.25, 10, 10);
+    const ultGeo = new THREE.SphereGeometry(0.55, 14, 14);
+    const playerMat = new THREE.MeshStandardMaterial({
+      color: 0xffe066,
+      emissive: 0xffaa00,
+      emissiveIntensity: 1.6,
+      roughness: 0.4,
+    });
+    const enemyMat = new THREE.MeshStandardMaterial({
+      color: 0xff6655,
+      emissive: 0xff3322,
+      emissiveIntensity: 1.6,
+      roughness: 0.4,
+    });
+    const ultMat = new THREE.MeshStandardMaterial({
+      color: 0xffff66,
+      emissive: 0xffcc00,
+      emissiveIntensity: 2.2,
+      roughness: 0.4,
+    });
+
+    for (let i = 0; i < POOL_SIZE_NORMAL; i++) {
+      const isPlayer = i < POOL_SIZE_NORMAL / 2;
+      const mesh = new THREE.Mesh(normalGeo, isPlayer ? playerMat : enemyMat);
+      mesh.visible = false;
+      mesh.position.set(0, -100, 0);
+      this.scene.add(mesh);
+      this.poolNormalMesh.push(mesh);
+      this.poolNormalFree.push(i);
+    }
+    for (let i = 0; i < POOL_SIZE_ULT; i++) {
+      const mesh = new THREE.Mesh(ultGeo, ultMat);
+      mesh.visible = false;
+      mesh.position.set(0, -100, 0);
+      this.scene.add(mesh);
+      this.poolUltMesh.push(mesh);
+      this.poolUltFree.push(i);
+    }
+  }
+  
   private setupPlayer() {
     const char = buildCharacter(0x3aa3ff, "player");
     this.playerChar = char;
@@ -632,8 +693,6 @@ export class Engine {
       vz: dir.y * PROJECTILE_SPEED,
       fromPlayer: true,
       damage: Math.round(PLAYER_DAMAGE * this.damageBoost),
-      color: 0xffe066,
-      emissive: 0xffaa00,
       ult: false,
       ownerId: this.localPlayerId,
       ownerName: this.playerName,
@@ -678,8 +737,6 @@ export class Engine {
       vz: dir.y * ULT_PROJECTILE_SPEED,
       fromPlayer: true,
       damage: ULT_DAMAGE,
-      color: 0xffff66,
-      emissive: 0xffcc00,
       ult: true,
       ownerId: this.localPlayerId,
       ownerName: this.playerName,
@@ -714,8 +771,6 @@ export class Engine {
       vz: dir.y * ENEMY_PROJECTILE_SPEED,
       fromPlayer: false,
       damage: 80,
-      color: 0xff6655,
-      emissive: 0xff3322,
       ult: false,
       ownerId: enemy.id,
       ownerName: enemy.name,
@@ -731,6 +786,9 @@ export class Engine {
     this.sound.playShot(0.5);
   }
 
+  // ============================================================
+  // spawnProjectile — now uses the pool. Zero allocations.
+  // ============================================================
   private spawnProjectile(opts: {
     px: number;
     pz: number;
@@ -738,35 +796,34 @@ export class Engine {
     vz: number;
     fromPlayer: boolean;
     damage: number;
-    color: number;
-    emissive: number;
     ult: boolean;
     ownerId: string;
     ownerName: string;
   }) {
-    const r = opts.ult ? 0.55 : 0.25;
-    const geo = new THREE.SphereGeometry(
-      r,
-      opts.ult ? 18 : 12,
-      opts.ult ? 18 : 12,
-    );
-    const mat = new THREE.MeshStandardMaterial({
-      color: opts.color,
-      emissive: opts.emissive,
-      emissiveIntensity: opts.ult ? 2.2 : 1.4,
-      roughness: 0.4,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(opts.px, 1.0, opts.pz);
-    this.scene.add(mesh);
+    const usePool = opts.ult ? this.poolUltFree : this.poolNormalFree;
+    if (usePool.length === 0) return; // pool exhausted — silently skip
 
-    let light: THREE.PointLight | undefined;
+    // For normal pool, choose the correct half: 0..19 player, 20..39 enemy
+    let poolIdx: number;
     if (opts.ult) {
-      light = new THREE.PointLight(opts.color, 3.5, 8);
-      light.position.set(opts.px, 1.2, opts.pz);
-      this.scene.add(light);
+      poolIdx = usePool.shift()!;
+    } else {
+      // Take from player half if fromPlayer, otherwise enemy half
+      const isPlayerHalf = (i: number) => i < POOL_SIZE_NORMAL / 2;
+      const idxInFree = usePool.findIndex((i) =>
+        opts.fromPlayer ? isPlayerHalf(i) : !isPlayerHalf(i),
+      );
+      if (idxInFree < 0) return;
+      poolIdx = usePool.splice(idxInFree, 1)[0];
     }
 
+    const mesh = opts.ult
+      ? this.poolUltMesh[poolIdx]
+      : this.poolNormalMesh[poolIdx];
+    mesh.visible = true;
+    mesh.position.set(opts.px, 1.0, opts.pz);
+
+    const r = opts.ult ? 0.55 : 0.25;
     const body = Matter.Bodies.circle(opts.px, opts.pz, r, {
       frictionAir: 0,
       isSensor: true,
@@ -787,20 +844,36 @@ export class Engine {
       vz: opts.vz,
       ult: opts.ult,
       pierced: new Set<Enemy>(),
-      light,
     });
   }
 
+  // ============================================================
+  // removeProjectile — returns mesh back to the pool
+  // ============================================================
   private removeProjectile(i: number) {
     const p = this.projectiles[i];
     Matter.World.remove(this.world, p.body);
-    this.scene.remove(p.mesh);
-    if (p.light) this.scene.remove(p.light);
-    (p.mesh.geometry as THREE.BufferGeometry).dispose();
-    (p.mesh.material as THREE.Material).dispose();
+
+    // Find which pool this mesh belongs to and return it
+    if (p.ult) {
+      const idx = this.poolUltMesh.indexOf(p.mesh);
+      if (idx >= 0) {
+        p.mesh.visible = false;
+        p.mesh.position.set(0, -100, 0);
+        this.poolUltFree.push(idx);
+      }
+    } else {
+      const idx = this.poolNormalMesh.indexOf(p.mesh);
+      if (idx >= 0) {
+        p.mesh.visible = false;
+        p.mesh.position.set(0, -100, 0);
+        this.poolNormalFree.push(idx);
+      }
+    }
+
     this.projectiles.splice(i, 1);
   }
-  
+
   private updatePlayer(dt: number) {
     const keyInput = new THREE.Vector2(0, 0);
     if (this.keys["KeyW"] || this.keys["ArrowUp"]) keyInput.y += 1;
@@ -958,7 +1031,6 @@ export class Engine {
         if (stop) break;
 
         if (p.fromPlayer) {
-          // ---------- Player bullets hit enemies ----------
           for (const e of this.enemies) {
             if (e.destroyed) continue;
             if (p.pierced.has(e)) continue;
@@ -993,7 +1065,6 @@ export class Engine {
             }
           }
         } else {
-          // ---------- Enemy bullets: hit player OR pet ----------
           let hitAnything = false;
 
           const dxp = nx - this.playerBody.position.x;
@@ -1035,8 +1106,6 @@ export class Engine {
       }
 
       p.mesh.position.set(p.body.position.x, 1.0, p.body.position.y);
-      if (p.light)
-        p.light.position.set(p.body.position.x, 1.2, p.body.position.y);
 
       if (hit) {
         if (hitWorld) {
@@ -1200,7 +1269,6 @@ export class Engine {
     }
     this.sparks = [];
     for (const f of this.muzzleFlashes) {
-      this.scene.remove(f.light);
       this.scene.remove(f.glow);
       (f.glow.geometry as THREE.BufferGeometry).dispose();
       (f.glow.material as THREE.Material).dispose();
