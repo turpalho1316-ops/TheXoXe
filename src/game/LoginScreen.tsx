@@ -1,10 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MapType } from "./types";
-import {
-  PLAYER_SKINS,
-  WOLF_SKINS,
-  type SaveData,
-} from "./save";
+import { PLAYER_SKINS, WOLF_SKINS, type SaveData } from "./save";
 
 type Props = {
   onStart: (name: string, map: MapType) => void;
@@ -25,12 +21,19 @@ export default function LoginScreen({
   onEquipPlayer,
   onEquipWolf,
 }: Props) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(save.playerName || "");
   const [map, setMap] = useState<MapType>("day");
   const [tab, setTab] = useState<Tab>("play");
 
+  // Sync name if save changes externally (e.g. after first game)
+  useEffect(() => {
+    if (save.playerName && !name) {
+      setName(save.playerName);
+    }
+  }, [save.playerName, name]);
+
   const submit = () => {
-    const trimmed = name.trim() || "Player";
+    const trimmed = name.trim() || save.playerName || "Player";
     onStart(trimmed, map);
   };
 
@@ -82,14 +85,8 @@ export default function LoginScreen({
         </div>
       </div>
 
-      {/* Top bar: coins + level */}
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          marginBottom: 12,
-        }}
-      >
+      {/* Top bar */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
         <div
           style={{
             background: "rgba(10, 18, 26, 0.82)",
@@ -193,7 +190,6 @@ export default function LoginScreen({
             Никнейм
           </label>
           <input
-            autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
@@ -201,6 +197,8 @@ export default function LoginScreen({
             }}
             placeholder="Введи имя"
             maxLength={16}
+            inputMode="text"
+            autoComplete="off"
             style={{
               background: "rgba(0,0,0,0.4)",
               border: "2px solid rgba(255,255,255,0.12)",
