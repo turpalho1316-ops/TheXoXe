@@ -47,6 +47,7 @@ export default function Game() {
   const killTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const saveRef = useRef<SaveData>(loadSave());
   const statsRef = useRef({ killsThisMatch: 0, petKillsThisMatch: 0 });
+  const rewardedRef = useRef(false);
 
   const [started, setStarted] = useState(false);
   const [playerName, setPlayerName] = useState("");
@@ -83,12 +84,25 @@ export default function Game() {
     setKillFeed([]);
     statsRef.current.killsThisMatch = 0;
     statsRef.current.petKillsThisMatch = 0;
+    rewardedRef.current = false;
     engineRef.current?.restart();
+  };
+
+  const handleExitToMenu = () => {
+    for (const t of killTimersRef.current) clearTimeout(t);
+    killTimersRef.current.clear();
+    setKillFeed([]);
+    statsRef.current.killsThisMatch = 0;
+    statsRef.current.petKillsThisMatch = 0;
+    rewardedRef.current = false;
+    setStarted(false);
   };
 
   useEffect(() => {
     if (!started) return;
     if (!containerRef.current) return;
+
+    rewardedRef.current = false;
 
     const playerSkin = getPlayerSkin(saveRef.current.currentPlayerSkin);
     const wolfSkin = getWolfSkin(saveRef.current.currentWolfSkin);
@@ -102,7 +116,8 @@ export default function Game() {
       {
         onStateChange: (s) => {
           setHudState(s);
-          if (s.status === "victory" && statsRef.current.killsThisMatch >= 0) {
+          if (s.status === "victory" && !rewardedRef.current) {
+            rewardedRef.current = true;
             const finalKills = statsRef.current.killsThisMatch;
             const petKills = statsRef.current.petKillsThisMatch;
             let data = saveRef.current;
@@ -122,6 +137,9 @@ export default function Game() {
               data = pr.data;
             }
             persist(data);
+          }
+          if (s.status === "defeat" && !rewardedRef.current) {
+            rewardedRef.current = true;
           }
         },
         onKill: (ev) => {
@@ -211,6 +229,7 @@ export default function Game() {
     setMapType(map);
     statsRef.current.killsThisMatch = 0;
     statsRef.current.petKillsThisMatch = 0;
+    rewardedRef.current = false;
     setStarted(true);
   };
 
@@ -247,6 +266,7 @@ export default function Game() {
           killFeed={killFeed}
           onUlt={handleUlt}
           onRetry={handleRetry}
+          onExit={handleExitToMenu}
           coins={save.coins}
           level={save.level}
           xp={save.xp}
