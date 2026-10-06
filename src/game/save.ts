@@ -1,14 +1,14 @@
 // ============================================================
-// XoXe — Save Data & Progression
-// localStorage-based save, missions, skins
+// XoXe — Save Data, Progression, Skins, Missions
+// Only real 3D (.glb) skins for the player.
 // ============================================================
 
 export type PlayerSkinDef = {
   id: string;
   name: string;
   price: number;
-  style: string;
   previewColor: string;
+  glbPath: string;
 };
 
 export type WolfSkinDef = {
@@ -45,57 +45,104 @@ export type SaveData = {
   missions: Mission[];
 };
 
-// ============================================================
-// Skins
-// ============================================================
 export const PLAYER_SKINS: PlayerSkinDef[] = [
-  { id: "default",  name: "Солдат",   price: 0,    style: "player",   previewColor: "#3aa3ff" },
-  { id: "pirate",   name: "Пират",    price: 500,  style: "pirate",   previewColor: "#8a5a2a" },
-  { id: "skeleton", name: "Скелет",   price: 600,  style: "skeleton", previewColor: "#e0e0d8" },
-  { id: "zombie",   name: "Зомби",    price: 700,  style: "zombie",   previewColor: "#6a8a3a" },
-  { id: "ninja",    name: "Ниндзя",   price: 800,  style: "ninja",    previewColor: "#1a1a1a" },
-  { id: "clown",    name: "Клоун",    price: 900,  style: "clown",    previewColor: "#ff88aa" },
-  { id: "ghost",    name: "Призрак",  price: 1000, style: "ghost",    previewColor: "#aad8ff" },
-  { id: "cowboy",   name: "Ковбой",   price: 1100, style: "cowboy",   previewColor: "#c08a4a" },
-  { id: "robot",    name: "Робот",    price: 1200, style: "robot",    previewColor: "#708090" },
-  { id: "knight",   name: "Рыцарь",   price: 1500, style: "knight",   previewColor: "#9098a8" },
-  { id: "samurai",  name: "Самурай",  price: 1800, style: "samurai",  previewColor: "#b02020" },
+  {
+    id: "default",
+    name: "Солдат",
+    price: 0,
+    previewColor: "#3aa3ff",
+    glbPath: "models/Soldier.glb",
+  },
+  {
+    id: "skeleton",
+    name: "Скелет",
+    price: 500,
+    previewColor: "#e0e0d8",
+    glbPath: "models/skins/Skeleton_Minion.glb",
+  },
+  {
+    id: "ghost",
+    name: "Маг",
+    price: 800,
+    previewColor: "#aad8ff",
+    glbPath: "models/skins/Skeleton_Mage.glb",
+  },
+  {
+    id: "ninja",
+    name: "Разбойник",
+    price: 1100,
+    previewColor: "#1a1a1a",
+    glbPath: "models/skins/Skeleton_Rogue.glb",
+  },
+  {
+    id: "knight",
+    name: "Воин",
+    price: 1500,
+    previewColor: "#9098a8",
+    glbPath: "models/skins/Skeleton_Warrior.glb",
+  },
 ];
 
 export const WOLF_SKINS: WolfSkinDef[] = [
-  { id: "wolf_default", name: "Серый волк",    price: 0,    bodyColor: 0x6b6f76, eyeColor: 0xffd24a, previewColor: "#6b6f76" },
-  { id: "wolf_white",   name: "Белый волк",    price: 800,  bodyColor: 0xf0f0f0, eyeColor: 0x6cf0ff, previewColor: "#f0f0f0" },
-  { id: "wolf_black",   name: "Чёрный волк",   price: 1200, bodyColor: 0x1a1a1a, eyeColor: 0xff3020, previewColor: "#1a1a1a" },
-  { id: "wolf_fire",    name: "Огненный волк", price: 2000, bodyColor: 0x8a2010, eyeColor: 0xffaa00, previewColor: "#c03010" },
+  {
+    id: "wolf_default",
+    name: "Серый волк",
+    price: 0,
+    bodyColor: 0x6b6f76,
+    eyeColor: 0xffd24a,
+    previewColor: "#6b6f76",
+  },
+  {
+    id: "wolf_white",
+    name: "Белый волк",
+    price: 800,
+    bodyColor: 0xf0f0f0,
+    eyeColor: 0x6cf0ff,
+    previewColor: "#f0f0f0",
+  },
+  {
+    id: "wolf_black",
+    name: "Чёрный волк",
+    price: 1200,
+    bodyColor: 0x1a1a1a,
+    eyeColor: 0xff3020,
+    previewColor: "#1a1a1a",
+  },
+  {
+    id: "wolf_fire",
+    name: "Огненный волк",
+    price: 2000,
+    bodyColor: 0x8a2010,
+    eyeColor: 0xffaa00,
+    previewColor: "#c03010",
+  },
 ];
 
 export function getPlayerSkin(id: string): PlayerSkinDef {
-  return PLAYER_SKINS.find((s) => s.id === id) ?? PLAYER_SKINS[0];
+  const found = PLAYER_SKINS.find((s) => s.id === id);
+  if (found) return found;
+  return PLAYER_SKINS[0];
 }
 
 export function getWolfSkin(id: string): WolfSkinDef {
-  return WOLF_SKINS.find((s) => s.id === id) ?? WOLF_SKINS[0];
+  const found = WOLF_SKINS.find((s) => s.id === id);
+  if (found) return found;
+  return WOLF_SKINS[0];
 }
 
-// ============================================================
-// Level curve
-// ============================================================
 export function xpToNextLevel(level: number): number {
   return 200 + (level - 1) * 200;
 }
 
-// ============================================================
-// Missions
-// ============================================================
 const MISSION_POOL = [
-  { id: "kill_5",  type: "kills" as const,      target: 5,  reward: 100, xp: 50,  text: "Убить 5 ботов" },
-  { id: "kill_10", type: "kills" as const,      target: 10, reward: 200, xp: 100, text: "Убить 10 ботов" },
-  { id: "kill_15", type: "kills" as const,      target: 15, reward: 300, xp: 150, text: "Убить 15 ботов" },
-  { id: "win_1",   type: "wins" as const,       target: 1,  reward: 200, xp: 100, text: "Победить 1 раз" },
-  { id: "win_3",   type: "wins" as const,       target: 3,  reward: 500, xp: 250, text: "Победить 3 раза" },
-  { id: "night_1", type: "nightWins" as const,  target: 1,  reward: 300, xp: 150, text: "Победить ночью" },
-  { id: "pet_3",   type: "petKills" as const,   target: 3,  reward: 250, xp: 120, text: "Пусть волк убьёт 3 ботов" },
-  { id: "pet_5",   type: "petKills" as const,   target: 5,  reward: 400, xp: 200, text: "Пусть волк убьёт 5 ботов" },
+  { id: "kill_5", type: "kills" as const, target: 5, reward: 100, xp: 50, text: "Убить 5 ботов" },
+  { id: "kill_10", type: "kills" as const, target: 10, reward: 200, xp: 100, text: "Убить 10 ботов" },
+  { id: "kill_15", type: "kills" as const, target: 15, reward: 300, xp: 150, text: "Убить 15 ботов" },
+  { id: "win_1", type: "wins" as const, target: 1, reward: 200, xp: 100, text: "Победить 1 раз" },
+  { id: "win_3", type: "wins" as const, target: 3, reward: 500, xp: 250, text: "Победить 3 раза" },
+  { id: "night_1", type: "nightWins" as const, target: 1, reward: 300, xp: 150, text: "Победить ночью" },
+  { id: "pet_3", type: "petKills" as const, target: 3, reward: 250, xp: 120, text: "Пусть волк убьёт 3 ботов" },
+  { id: "pet_5", type: "petKills" as const, target: 5, reward: 400, xp: 200, text: "Пусть волк убьёт 5 ботов" },
 ];
 
 export function generateMissions(): Mission[] {
@@ -119,9 +166,6 @@ export function generateMissions(): Mission[] {
 
 const REFRESH_MS = 24 * 60 * 60 * 1000;
 
-// ============================================================
-// Save / Load
-// ============================================================
 const STORAGE_KEY = "xoxe_save_v1";
 
 export function makeDefaultSave(): SaveData {
@@ -151,10 +195,13 @@ export function loadSave(): SaveData {
       xp: typeof parsed.xp === "number" ? parsed.xp : def.xp,
       totalXp: typeof parsed.totalXp === "number" ? parsed.totalXp : def.totalXp,
       ownedPlayerSkins: Array.isArray(parsed.ownedPlayerSkins)
-        ? parsed.ownedPlayerSkins
+        ? parsed.ownedPlayerSkins.filter((id) =>
+            PLAYER_SKINS.some((s) => s.id === id),
+          )
         : def.ownedPlayerSkins,
       currentPlayerSkin:
-        typeof parsed.currentPlayerSkin === "string"
+        typeof parsed.currentPlayerSkin === "string" &&
+        PLAYER_SKINS.some((s) => s.id === parsed.currentPlayerSkin)
           ? parsed.currentPlayerSkin
           : def.currentPlayerSkin,
       ownedWolfSkins: Array.isArray(parsed.ownedWolfSkins)
@@ -200,9 +247,6 @@ export function refreshMissionsIfNeeded(data: SaveData): SaveData {
   return data;
 }
 
-// ============================================================
-// Rewards
-// ============================================================
 export function addRewards(
   data: SaveData,
   coins: number,
