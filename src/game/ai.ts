@@ -4,7 +4,7 @@ import {
   pickDialogue,
   pickMonologue,
   pickSpottedLine,
-  createSpeechBubbleTexture,
+  getSpeechBubbleTexture,
 } from "./bots_dialogues";
 import {
   VISION_RADIUS,
@@ -18,9 +18,6 @@ import {
 } from "./config";
 import type { AIContext, Enemy } from "./types";
 
-// ============================================================
-// Speech bubble helpers
-// ============================================================
 export function showBubbleFor(
   enemy: Enemy,
   text: string,
@@ -28,11 +25,10 @@ export function showBubbleFor(
 ): void {
   if (enemy.bubble) {
     enemy.char.group.remove(enemy.bubble);
-    enemy.bubble.material.map?.dispose();
     enemy.bubble.material.dispose();
     enemy.bubble = null;
   }
-  const tex = createSpeechBubbleTexture(text);
+  const tex = getSpeechBubbleTexture(text);
   const mat = new THREE.SpriteMaterial({
     map: tex,
     transparent: true,
@@ -51,15 +47,11 @@ export function showBubbleFor(
 export function clearBubble(enemy: Enemy): void {
   if (enemy.bubble) {
     enemy.char.group.remove(enemy.bubble);
-    enemy.bubble.material.map?.dispose();
     enemy.bubble.material.dispose();
     enemy.bubble = null;
   }
 }
 
-// ============================================================
-// Player visibility (respects bushes)
-// ============================================================
 function canSeePlayer(ctx: AIContext, enemy: Enemy): boolean {
   if (ctx.destroyed) return false;
   if (ctx.inBush) return false;
@@ -69,9 +61,6 @@ function canSeePlayer(ctx: AIContext, enemy: Enemy): boolean {
   return d2 < enemy.visionRadius * enemy.visionRadius;
 }
 
-// ============================================================
-// Repulsion from obstacles / crates / borders
-// ============================================================
 function computeRepulsion(ctx: AIContext, e: Enemy): THREE.Vector2 {
   const AVOID_RADIUS = 3.5;
   const rep = new THREE.Vector2(0, 0);
@@ -105,9 +94,6 @@ function computeRepulsion(ctx: AIContext, e: Enemy): THREE.Vector2 {
   return rep;
 }
 
-// ============================================================
-// Main AI tick
-// ============================================================
 export function updateEnemies(
   ctx: AIContext,
   dt: number,
@@ -121,12 +107,10 @@ export function updateEnemies(
     e.char.group.position.set(e.body.position.x, 0, e.body.position.y);
     e.visionRing.position.set(e.body.position.x, 0.03, e.body.position.y);
 
-    // Reset pet-aggro if pet is gone
     if (e.targetPet && (!ctx.pet || !ctx.pet.alive)) {
       e.targetPet = false;
     }
 
-    // Bubble lifetime
     if (e.bubble && elapsed > e.bubbleUntil) {
       clearBubble(e);
     }
@@ -135,15 +119,14 @@ export function updateEnemies(
       mat.opacity = Math.min(1, (e.bubbleUntil - elapsed) * 4);
     }
 
-    // -------- Determine target --------
-    const petTargetX = ctx.pet && ctx.pet.alive ? ctx.pet.body.position.x : 0;
-    const petTargetZ = ctx.pet && ctx.pet.alive ? ctx.pet.body.position.y : 0;
     const usePet = e.targetPet && ctx.pet && ctx.pet.alive;
+    const targetX = usePet
+      ? ctx.pet!.body.position.x
+      : ctx.playerBody.position.x;
+    const targetZ = usePet
+      ? ctx.pet!.body.position.y
+      : ctx.playerBody.position.y;
 
-    const targetX = usePet ? petTargetX : ctx.playerBody.position.x;
-    const targetZ = usePet ? petTargetZ : ctx.playerBody.position.y;
-
-    // Visibility check
     let canSee = false;
     if (usePet) {
       const dxp = targetX - e.body.position.x;
@@ -153,9 +136,6 @@ export function updateEnemies(
       canSee = canSeePlayer(ctx, e);
     }
 
-    // ============================================================
-    // STATE: CHAT
-    // ============================================================
     if (e.state === "chat") {
       Matter.Body.setVelocity(e.body, { x: 0, y: 0 });
       const partner = ctx.enemies.find((x) => x.id === e.chatPartnerId);
@@ -198,9 +178,6 @@ export function updateEnemies(
       continue;
     }
 
-    // ============================================================
-    // STATE TRANSITIONS
-    // ============================================================
     if (canSee) {
       if (e.state !== "chase") {
         e.state = "chase";
@@ -216,9 +193,6 @@ export function updateEnemies(
       e.targetPet = false;
     }
 
-    // ============================================================
-    // STATE: CHASE
-    // ============================================================
     if (e.state === "chase") {
       const dxRaw = targetX - e.body.position.x;
       const dzRaw = targetZ - e.body.position.y;
@@ -284,9 +258,6 @@ export function updateEnemies(
         ctx.fireEnemyProjectile(e, ad);
       }
     } else {
-      // ============================================================
-      // STATE: PATROL
-      // ============================================================
       const target = e.patrolPoints[e.patrolIdx];
       const dxRaw = target.x - e.body.position.x;
       const dzRaw = target.z - e.body.position.y;
@@ -312,9 +283,6 @@ export function updateEnemies(
       }
     }
 
-    // ============================================================
-    // MAP BOUNDS
-    // ============================================================
     const halfW = MAP_W / 2 - 3;
     const halfH = MAP_H / 2 - 3;
     if (e.body.position.x < -halfW) e.body.position.x = -halfW;
@@ -322,9 +290,6 @@ export function updateEnemies(
     if (e.body.position.y < -halfH) e.body.position.y = -halfH;
     if (e.body.position.y > halfH) e.body.position.y = halfH;
 
-    // ============================================================
-    // AUTO MONOLOGUE
-    // ============================================================
     if (
       e.state === "patrol" &&
       !e.bubble &&
@@ -336,9 +301,6 @@ export function updateEnemies(
       e.monologueNextAt = now + 8 + Math.random() * 10;
     }
 
-    // ============================================================
-    // CHAT INITIATION
-    // ============================================================
     if (e.state === "patrol" && !e.bubble && now > e.chatCooldownUntil) {
       for (const other of ctx.enemies) {
         if (other === e || other.destroyed) continue;
@@ -376,9 +338,6 @@ export function updateEnemies(
   }
 }
 
-// ============================================================
-// Vision ring creation
-// ============================================================
 export function createVisionRing(
   scene: THREE.Scene,
   x: number,
