@@ -1481,58 +1481,55 @@ export class Engine {
   // preserving the smooth catch-up when the player goes far enough.
   // ============================================================
   private updateCamera(snap = false) {
-    const px = this.playerBody.position.x;
-    const pz = this.playerBody.position.y;
+  const px = this.playerBody.position.x;
+  const pz = this.playerBody.position.y;
 
-    // Half-width / half-height of the visible world area.
-    // Note: the world Y is scaled by Y_TILT (0.72) on render,
-    // so we correct the vertical dead-zone accordingly.
-    const Y_TILT = 0.72;
-    const halfW = CAM_VIEW_HEIGHT * this.getAspect() * 0.5;
-    const halfH = CAM_VIEW_HEIGHT * 0.5 / Y_TILT;
+  const Y_TILT = 0.72;
+  const halfW = CAM_VIEW_HEIGHT * this.getAspect() * 0.5;
+  const halfH = CAM_VIEW_HEIGHT * 0.5 / Y_TILT;
 
-    // Half-size of the dead-zone rectangle.
-    const deadX = halfW * CAM_DEADZONE_X;
-    const deadZ = halfH * CAM_DEADZONE_Y;
+  const deadX = halfW * CAM_DEADZONE_X;
+  const deadZ = halfH * CAM_DEADZONE_Y;
 
-    // Push the focus point so the player is back inside the zone.
-    const dx = px - this.camFocusX;
-    const dz = pz - this.camFocusZ;
+  const dx = px - this.camFocusX;
+  const dz = pz - this.camFocusZ;
 
-    if (dx > deadX) this.camFocusX = px - deadX;
-    else if (dx < -deadX) this.camFocusX = px + deadX;
+  if (dx > deadX) this.camFocusX = px - deadX;
+  else if (dx < -deadX) this.camFocusX = px + deadX;
 
-    if (dz > deadZ) this.camFocusZ = pz - deadZ;
-    else if (dz < -deadZ) this.camFocusZ = pz + deadZ;
+  if (dz > deadZ) this.camFocusZ = pz - deadZ;
+  else if (dz < -deadZ) this.camFocusZ = pz + deadZ;
 
-    // Clamp camera so it doesn't show beyond the map edges.
-    const halfMapW = MAP_W / 2;
-    const halfMapH = MAP_H / 2;
-    if (this.camFocusX - halfW < -halfMapW)
-      this.camFocusX = -halfMapW + halfW;
-    if (this.camFocusX + halfW > halfMapW)
-      this.camFocusX = halfMapW - halfW;
-    if (this.camFocusZ - halfH < -halfMapH)
-      this.camFocusZ = -halfMapH + halfH;
-    if (this.camFocusZ + halfH > halfMapH)
-      this.camFocusZ = halfMapH - halfH;
+  // Soft clamp: camFocus may go slightly beyond the map edge
+  // (1 meter). That keeps the player visible near walls.
+  const halfMapW = MAP_W / 2;
+  const halfMapH = MAP_H / 2;
+  const softMargin = 1;
+  if (this.camFocusX < -halfMapW + softMargin)
+    this.camFocusX = -halfMapW + softMargin;
+  if (this.camFocusX > halfMapW - softMargin)
+    this.camFocusX = halfMapW - softMargin;
+  if (this.camFocusZ < -halfMapH + softMargin)
+    this.camFocusZ = -halfMapH + softMargin;
+  if (this.camFocusZ > halfMapH - softMargin)
+    this.camFocusZ = halfMapH - softMargin;
 
-    const focus = new THREE.Vector3(this.camFocusX, 0, this.camFocusZ);
-    const camOffset = new THREE.Vector3(
-      -Math.cos(Math.PI / 3) * Math.cos(Math.PI / 4) * CAM_DIST,
-      Math.sin(Math.PI / 3) * CAM_DIST,
-      -Math.cos(Math.PI / 3) * Math.sin(Math.PI / 4) * CAM_DIST,
-    );
-    const desired = focus.clone().add(camOffset);
+  const focus = new THREE.Vector3(this.camFocusX, 0, this.camFocusZ);
+  const camOffset = new THREE.Vector3(
+    -Math.cos(Math.PI / 3) * Math.cos(Math.PI / 4) * CAM_DIST,
+    Math.sin(Math.PI / 3) * CAM_DIST,
+    -Math.cos(Math.PI / 3) * Math.sin(Math.PI / 4) * CAM_DIST,
+  );
+  const desired = focus.clone().add(camOffset);
 
-    if (snap) {
-      this.camera.position.copy(desired);
-    } else {
-      this.camera.position.lerp(desired, CAM_LERP);
-    }
-
-    this.camera.lookAt(focus);
+  if (snap) {
+    this.camera.position.copy(desired);
+  } else {
+    this.camera.position.lerp(desired, CAM_LERP);
   }
+
+  this.camera.lookAt(focus);
+}
 
   private getAspect(): number {
     return this.container.clientWidth / this.container.clientHeight;
