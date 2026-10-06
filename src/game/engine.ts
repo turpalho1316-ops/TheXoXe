@@ -24,6 +24,8 @@ import {
   CAM_VIEW_HEIGHT,
   CAM_DIST,
   CAM_LERP,
+  CAM_DEADZONE_X,
+  CAM_DEADZONE_Y,
   RELOAD_TIME,
 } from "./config";
 import type {
@@ -83,9 +85,6 @@ import { updatePet, damagePet, respawnPet } from "./pet";
 
 const POOL_SIZE_NORMAL = 40;
 const POOL_SIZE_ULT = 6;
-
-// Delay before camera catches up to the player (seconds)
-const CAMERA_FOLLOW_DELAY = 1.5;
 
 type BotDef = {
   name: string;
@@ -244,9 +243,11 @@ export class Engine {
   private nextProjectileId = 1;
   private simTick = 0;
 
-  // ---------- Camera follow delay ----------
-  private cameraPlayerStillSince = 0;
-  private cameraIsFollowing = true;
+  // Dead-zone camera: the world position the camera is currently
+  // "framed" on. Not the same as `camera.position` — this is the
+  // logical target that only moves when the player leaves the zone.
+  private camFocusX = 0;
+  private camFocusZ = 0;
 
   constructor(
     container: HTMLElement,
@@ -308,6 +309,8 @@ export class Engine {
     this.setupPet();
     this.spawnEnemies();
 
+    this.camFocusX = this.playerBody.position.x;
+    this.camFocusZ = this.playerBody.position.y;
     this.updateCamera(true);
     this.bindEvents();
 
@@ -474,16 +477,11 @@ export class Engine {
         m.receiveShadow = true;
       }
     });
-    // Skeleton models from KayKit are bigger than Soldier; scale them down
-    // a bit so the player matches the bots' proportions better.
     const isSkeleton =
       this.skinGlbPath.includes("Skeleton_") ||
       this.skinGlbPath.includes("skeleton");
     const scale = isSkeleton ? MODEL_SCALE * 0.7 : MODEL_SCALE;
     model.scale.set(scale, scale, scale);
-    // All our models face the +Z direction. We flip them by PI so that our
-    // code (which turns the group toward -Z as forward) shows the correct
-    // side. This applies to Soldier too — no flip for skeletons.
     model.rotation.y = isSkeleton ? 0 : Math.PI;
     this.playerGLB = model;
     this.playerChar.group.add(model);
@@ -1407,8 +1405,8 @@ export class Engine {
     this.aimActive = false;
     this.mouseAimActive = false;
     this.mouseAimDir = null;
-    this.cameraIsFollowing = true;
-    this.cameraPlayerStillSince = 0;
+    this.camFocusX = 0;
+    this.camFocusZ = 0;
 
     if (this.pet) {
       respawnPet(this.pet, 1.5, 1.5);
@@ -1472,61 +1470,72 @@ export class Engine {
   }
 
   // ============================================================
-  // Camera with follow delay.
-  // When the player starts moving, the camera waits 1.5s before
-  // catching up. While waiting, camera stays put. This removes
-  // the "camera is glued to the player" feel and gives a smooth,
-  // cinematic delay. Once the player stops for a moment, the
-  // timer resets.
+  // Camera with dead-zone (Brawl Stars style).
+  //
+  // The camera is locked to a "focus point" (camFocusX/camFocusZ).
+  // That focus point only moves when the player leaves the dead-zone
+  // rectangle — a small area around the focus point. Inside the zone,
+  // the player moves freely and the camera stays perfectly still.
+  //
+  // This removes the constant micro-movement of the camera while
+  // preserving the smooth catch-up when the player goes far enough.
   // ============================================================
   private updateCamera(snap = false) {
-    const elapsed = this.clock.getElapsedTime();
-    const speed = this.playerVel.length();
+    const px = this.playerBody.position.x;
+    const pz = this.playerBody.position.y;
 
-    // Moving fast enough? consider it "moving".
-    const isMoving = speed > 3;
+    // Half-width / half-height of the visible world area.
+    // Note: the world Y is scaled by Y_TILT (0.72) on render,
+    // so we correct the vertical dead-zone accordingly.
+    const Y_TILT = 0.72;
+    const halfW = CAM_VIEW_HEIGHT * this.getAspect() * 0.5;
+    const halfH = CAM_VIEW_HEIGHT * 0.5 / Y_TILT;
 
-    if (!isMoving) {
-      // Player is at rest — reset the timer.
-      this.cameraPlayerStillSince = elapsed;
-      this.cameraIsFollowing = false;
-    } else {
-      // Player is moving. Do we wait or follow?
-      if (elapsed - this.cameraPlayerStillSince >= CAMERA_FOLLOW_DELAY) {
-        this.cameraIsFollowing = true;
-      }
-    }
+    // Half-size of the dead-zone rectangle.
+    const deadX = halfW * CAM_DEADZONE_X;
+    const deadZ = halfH * CAM_DEADZONE_Y;
 
-    const target = new THREE.Vector3(
-      this.playerBody.position.x,
-      0,
-      this.playerBody.position.y,
-    );
+    // Push the focus point so the player is back inside the zone.
+    const dx = px - this.camFocusX;
+    const dz = pz - this.camFocusZ;
+
+    if (dx > deadX) this.camFocusX = px - deadX;
+    else if (dx < -deadX) this.camFocusX = px + deadX;
+
+    if (dz > deadZ) this.camFocusZ = pz - deadZ;
+    else if (dz < -deadZ) this.camFocusZ = pz + deadZ;
+
+    // Clamp camera so it doesn't show beyond the map edges.
+    const halfMapW = MAP_W / 2;
+    const halfMapH = MAP_H / 2;
+    if (this.camFocusX - halfW < -halfMapW)
+      this.camFocusX = -halfMapW + halfW;
+    if (this.camFocusX + halfW > halfMapW)
+      this.camFocusX = halfMapW - halfW;
+    if (this.camFocusZ - halfH < -halfMapH)
+      this.camFocusZ = -halfMapH + halfH;
+    if (this.camFocusZ + halfH > halfMapH)
+      this.camFocusZ = halfMapH - halfH;
+
+    const focus = new THREE.Vector3(this.camFocusX, 0, this.camFocusZ);
     const camOffset = new THREE.Vector3(
       -Math.cos(Math.PI / 3) * Math.cos(Math.PI / 4) * CAM_DIST,
       Math.sin(Math.PI / 3) * CAM_DIST,
       -Math.cos(Math.PI / 3) * Math.sin(Math.PI / 4) * CAM_DIST,
     );
-    const desired = target.clone().add(camOffset);
+    const desired = focus.clone().add(camOffset);
 
     if (snap) {
       this.camera.position.copy(desired);
-      this.camera.lookAt(target);
-      return;
-    }
-
-    if (this.cameraIsFollowing) {
+    } else {
       this.camera.position.lerp(desired, CAM_LERP);
     }
 
-    // Always look at the player, even when not following.
-    // Use the current camera position so the view angle stays stable.
-    const lookTarget = new THREE.Vector3(
-      this.playerBody.position.x,
-      0,
-      this.playerBody.position.y,
-    );
-    this.camera.lookAt(lookTarget);
+    this.camera.lookAt(focus);
+  }
+
+  private getAspect(): number {
+    return this.container.clientWidth / this.container.clientHeight;
   }
 
   private makeAIContext(): AIContext {
