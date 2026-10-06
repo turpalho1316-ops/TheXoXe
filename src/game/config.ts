@@ -1,5 +1,6 @@
 // ============================================================
 // XoXe — Game Configuration
+// All tunable values in one place.
 // ============================================================
 
 export const MODEL_SCALE = 1.7;
@@ -58,8 +59,8 @@ export const RELOAD_TIME = 1.6;
 // ============================================================
 // PET — companion wolf
 // ============================================================
-export const PET_HP = 800;
-export const PET_MAX_HP = 800;
+export const PET_HP = 500;
+export const PET_MAX_HP = 500;
 export const PET_DAMAGE = 200;
 export const PET_SPEED = 12;
 export const PET_FOLLOW_DIST = 3.0;
@@ -77,3 +78,11 @@ export const NIGHT_MOON_INTENSITY = 0.5;
 export const NIGHT_LAMP_INTENSITY = 3.0;
 export const NIGHT_LAMP_DISTANCE = 14;
 export const NIGHT_FOG_COLOR = 0x0a1220;
+
+// ============================================================
+// PROGRESSION — rewards
+// ============================================================
+export const COINS_PER_KILL = 50;
+export const COINS_PER_WIN = 200;
+export const XP_PER_KILL = 15;
+export const XP_PER_WIN = 100;
