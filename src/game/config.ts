@@ -51,7 +51,13 @@ export const AIM_WIDTH = 2;
 // Camera
 export const CAM_VIEW_HEIGHT = 18;
 export const CAM_DIST = 35;
-export const CAM_LERP = 0.06;
+export const CAM_LERP = 0.08;
+
+// Camera dead-zone — fraction of the viewport where the camera
+// DOES NOT move. 0.35 = camera only starts moving once the player
+// reaches 35% of the way from the center to the screen edge.
+export const CAM_DEADZONE_X = 0.28;
+export const CAM_DEADZONE_Y = 0.28;
 
 // Reload time for one bullet (seconds)
 export const RELOAD_TIME = 1.6;
