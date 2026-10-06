@@ -9,24 +9,13 @@ import {
   PET_ATTACK_COOLDOWN,
   PET_DETECT_RANGE,
   PET_LEASH_RANGE,
-  PET_HP,
   PET_MAX_HP,
   MAP_W,
   MAP_H,
 } from "./config";
-import type { Pet, Enemy, AIContext, Obstacle, Crate } from "./types";
+import type { Pet, Enemy, AIContext } from "./types";
 import { animatePet, refreshPetHpBar } from "./characters";
 import { spawnDamageNumber, spawnSparks } from "./effects";
-
-// ============================================================
-// Pet AI — wolf companion
-// Behavior:
-//   - follows player
-//   - if enemy shot player recently → chase that enemy
-//   - if enemy is in detect range → attack it
-//   - when close to target → bite (damage + cooldown)
-//   - if HP = 0 → dead, respawns with player (engine handles respawn)
-// ============================================================
 
 function findNearestEnemy(ctx: AIContext, pet: Pet): Enemy | null {
   let best: Enemy | null = null;
@@ -44,10 +33,7 @@ function findNearestEnemy(ctx: AIContext, pet: Pet): Enemy | null {
   return best;
 }
 
-function computeRepulsion(
-  ctx: AIContext,
-  pet: Pet,
-): THREE.Vector2 {
+function computeRepulsion(ctx: AIContext, pet: Pet): THREE.Vector2 {
   const AVOID_RADIUS = 3.0;
   const rep = new THREE.Vector2(0, 0);
   for (const o of ctx.obstacles) {
@@ -85,13 +71,10 @@ export function updatePet(
 
   const now = ctx.clock.getElapsedTime();
 
-  // Sync mesh position with physics body
   pet.group.position.set(pet.body.position.x, 0, pet.body.position.y);
 
-  // ---------- Determine target ----------
   let target: Enemy | null = null;
 
-  // 1. Explicit last attacker (bot who shot the player recently)
   if (pet.lastAttackerId) {
     const ex = ctx.enemies.find(
       (e) => e.id === pet.lastAttackerId && !e.destroyed,
@@ -100,14 +83,12 @@ export function updatePet(
     else pet.lastAttackerId = null;
   }
 
-  // 2. Otherwise — nearest visible enemy
   if (!target) {
     target = findNearestEnemy(ctx, pet);
   }
 
   pet.targetEnemyId = target ? target.id : null;
 
-  // ---------- Move ----------
   const playerX = ctx.playerBody.position.x;
   const playerZ = ctx.playerBody.position.y;
   const distToPlayer = Math.hypot(
@@ -123,24 +104,24 @@ export function updatePet(
     const tdz = target.body.position.y - pet.body.position.y;
     const td = Math.hypot(tdx, tdz);
 
-    // Attack when in range
     if (td < PET_ATTACK_RANGE) {
       pet.state = "attack";
-      // Face target
       pet.group.rotation.y = lerpAngle(
         pet.group.rotation.y,
         Math.atan2(tdx, tdz),
         0.2,
       );
-      // Bite on cooldown
       if (now - pet.lastBiteAt > PET_ATTACK_COOLDOWN) {
         pet.lastBiteAt = now;
         const before = target.hp;
         target.hp = Math.max(0, target.hp - PET_DAMAGE);
         const dealt = before - target.hp;
+
+        // *** Use the shared array from AIContext so engine's updateDamageNumbers
+        //     will fade & remove them properly. ***
         spawnDamageNumber(
           ctx.scene,
-          ctx.enemies.length ? [] : [], // placeholder — engine handles numbers
+          ctx.damageNumbers,
           target.body.position.x,
           2.4,
           target.body.position.y,
@@ -148,10 +129,9 @@ export function updatePet(
           "#ff5a3a",
           now,
         );
-        // Blood sparks
         spawnSparks(
           ctx.scene,
-          [],
+          ctx.sparks,
           target.body.position.x,
           1.0,
           target.body.position.y,
@@ -159,30 +139,25 @@ export function updatePet(
           8,
           now,
         );
-        // Notify engine — we set a marker on the enemy: engine will refresh hp bar
+
         (target as Enemy & { _petBiteDamage?: number })._petBiteDamage = dealt;
-        // Aggro the target onto the pet
         target.targetPet = true;
         target.state = "chase";
       }
     } else {
       pet.state = "attack";
-      // Run towards target
       desiredDir.set(tdx / td, tdz / td);
       speed = PET_SPEED;
     }
   } else {
-    // Follow the player
     pet.state = "follow";
     if (distToPlayer > PET_FOLLOW_DEADZONE) {
       const dx = playerX - pet.body.position.x;
       const dz = playerZ - pet.body.position.y;
       const d = Math.hypot(dx, dz) || 1;
       desiredDir.set(dx / d, dz / d);
-      // Speed up if far, slow if just settling
       speed = distToPlayer > 10 ? PET_SPEED : PET_SPEED * 0.7;
     } else if (distToPlayer > PET_FOLLOW_DIST) {
-      // Small drift toward player, but no run
       const dx = playerX - pet.body.position.x;
       const dz = playerZ - pet.body.position.y;
       const d = Math.hypot(dx, dz) || 1;
@@ -191,7 +166,6 @@ export function updatePet(
     }
   }
 
-  // Leash: if too far from player — return even if target is set
   if (distToPlayer > PET_LEASH_RANGE) {
     const dx = playerX - pet.body.position.x;
     const dz = playerZ - pet.body.position.y;
@@ -202,29 +176,24 @@ export function updatePet(
     pet.targetEnemyId = null;
   }
 
-  // Add repulsion from obstacles
   const repulsion = computeRepulsion(ctx, pet);
   desiredDir.add(repulsion.multiplyScalar(1.8));
   if (desiredDir.lengthSq() > 0.0001) {
     desiredDir.normalize();
   }
 
-  // Apply velocity
   Matter.Body.setVelocity(pet.body, {
     x: desiredDir.x * speed * dt,
     y: desiredDir.y * speed * dt,
   });
 
-  // Face movement direction (unless facing a target)
   if (!target && desiredDir.lengthSq() > 0.0001) {
     const ta = Math.atan2(desiredDir.x, desiredDir.y);
     pet.group.rotation.y = lerpAngle(pet.group.rotation.y, ta, 0.15);
   }
 
-  // Animate
   animatePet(pet, speed, dt);
 
-  // Clamp inside map
   const halfW = MAP_W / 2 - 3;
   const halfH = MAP_H / 2 - 3;
   if (pet.body.position.x < -halfW) pet.body.position.x = -halfW;
@@ -232,11 +201,9 @@ export function updatePet(
   if (pet.body.position.y < -halfH) pet.body.position.y = -halfH;
   if (pet.body.position.y > halfH) pet.body.position.y = halfH;
 
-  // Sync HP bar visibility
   pet.hpBar.visible = pet.alive;
 }
 
-// Called from engine when a projectile hits the pet
 export function damagePet(
   ctx: AIContext,
   attackerId: string,
@@ -246,7 +213,6 @@ export function damagePet(
   if (!pet || !pet.alive) return;
   pet.hp = Math.max(0, pet.hp - damage);
   refreshPetHpBar(pet);
-  // The pet retaliates on whoever shot it
   pet.lastAttackerId = attackerId;
   if (pet.hp <= 0) {
     pet.alive = false;
@@ -256,7 +222,6 @@ export function damagePet(
   }
 }
 
-// Called from engine on player respawn
 export function respawnPet(pet: Pet, x: number, z: number): void {
   pet.hp = PET_MAX_HP;
   pet.alive = true;
