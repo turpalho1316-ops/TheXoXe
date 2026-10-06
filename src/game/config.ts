@@ -1,13 +1,12 @@
 // ============================================================
 // XoXe — Game Configuration
-// All tunable values in one place.
 // ============================================================
 
 export const MODEL_SCALE = 1.7;
 
 // Player stats
 export const PLAYER_HP = 9000;
-export const PLAYER_SPEED = 18.0;
+export const PLAYER_SPEED = 16.0;
 export const PLAYER_DAMAGE = 220;
 
 // Enemy stats
@@ -28,9 +27,9 @@ export const MAP_W = 50;
 export const MAP_H = 100;
 
 // Bot movement speeds
-export const ENEMY_CHASE_SPEED = 10;
-export const ENEMY_PATROL_SPEED = 5.5;
-export const ENEMY_BACK_SPEED = 7;
+export const ENEMY_CHASE_SPEED = 9;
+export const ENEMY_PATROL_SPEED = 5;
+export const ENEMY_BACK_SPEED = 6.5;
 
 // Projectile speeds
 export const PROJECTILE_SPEED = 22 * 0.85;
@@ -62,7 +61,7 @@ export const RELOAD_TIME = 1.6;
 export const PET_HP = 800;
 export const PET_MAX_HP = 800;
 export const PET_DAMAGE = 200;
-export const PET_SPEED = 14;
+export const PET_SPEED = 12;
 export const PET_FOLLOW_DIST = 3.0;
 export const PET_FOLLOW_DEADZONE = 5.0;
 export const PET_ATTACK_RANGE = 1.8;
