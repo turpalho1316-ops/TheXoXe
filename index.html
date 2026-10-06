@@ -8,63 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
-    <style>
-      #error-overlay {
-        position: fixed;
-        inset: 0;
-        background: #1a0000;
-        color: #ffcccc;
-        font-family: monospace;
-        font-size: 13px;
-        padding: 20px;
-        overflow: auto;
-        z-index: 99999;
-        display: none;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      #error-overlay h2 {
-        color: #ff5050;
-        margin: 0 0 12px 0;
-        font-size: 18px;
-      }
-      #error-overlay .stack {
-        color: #ffa0a0;
-        margin-top: 12px;
-        font-size: 12px;
-      }
-    </style>
   </head>
   <body>
     <div id="root"></div>
-    <div id="error-overlay">
-      <h2>⚠ Ошибка в игре</h2>
-      <div id="error-msg"></div>
-      <div class="stack" id="error-stack"></div>
-    </div>
-    <script>
-      (function () {
-        function showError(msg, stack) {
-          var overlay = document.getElementById("error-overlay");
-          var msgEl = document.getElementById("error-msg");
-          var stackEl = document.getElementById("error-stack");
-          if (!overlay || !msgEl) return;
-          msgEl.textContent = msg || "Неизвестная ошибка";
-          if (stackEl) stackEl.textContent = stack || "";
-          overlay.style.display = "block";
-        }
-        window.addEventListener("error", function (e) {
-          showError(e.message, (e.error && e.error.stack) || "");
-        });
-        window.addEventListener("unhandledrejection", function (e) {
-          var r = e.reason;
-          showError(
-            r && r.message ? r.message : String(r),
-            (r && r.stack) || "",
-          );
-        });
-      })();
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
