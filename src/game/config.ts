@@ -3,12 +3,11 @@
 // All tunable values in one place.
 // ============================================================
 
-// Player model scale (1.0 = base, 2.0 = twice as large)
 export const MODEL_SCALE = 1.7;
 
 // Player stats
 export const PLAYER_HP = 9000;
-export const PLAYER_SPEED = 28.0;
+export const PLAYER_SPEED = 18.0;
 export const PLAYER_DAMAGE = 220;
 
 // Enemy stats
@@ -29,9 +28,9 @@ export const MAP_W = 50;
 export const MAP_H = 100;
 
 // Bot movement speeds
-export const ENEMY_CHASE_SPEED = 14;
-export const ENEMY_PATROL_SPEED = 8;
-export const ENEMY_BACK_SPEED = 10;
+export const ENEMY_CHASE_SPEED = 10;
+export const ENEMY_PATROL_SPEED = 5.5;
+export const ENEMY_BACK_SPEED = 7;
 
 // Projectile speeds
 export const PROJECTILE_SPEED = 22 * 0.85;
@@ -52,6 +51,7 @@ export const AIM_WIDTH = 2;
 // Camera
 export const CAM_VIEW_HEIGHT = 18;
 export const CAM_DIST = 35;
+export const CAM_LERP = 0.06;
 
 // Reload time for one bullet (seconds)
 export const RELOAD_TIME = 1.6;
@@ -62,7 +62,7 @@ export const RELOAD_TIME = 1.6;
 export const PET_HP = 800;
 export const PET_MAX_HP = 800;
 export const PET_DAMAGE = 200;
-export const PET_SPEED = 22;
+export const PET_SPEED = 14;
 export const PET_FOLLOW_DIST = 3.0;
 export const PET_FOLLOW_DEADZONE = 5.0;
 export const PET_ATTACK_RANGE = 1.8;
