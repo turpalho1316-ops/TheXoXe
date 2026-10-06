@@ -67,7 +67,6 @@ export function createGrassTexture(): THREE.Texture {
 
 // ============================================================
 // HP bar texture cache
-// Key = `${name}_${hp}_${maxHp}` — cached forever
 // ============================================================
 const hpBarCache = new Map<string, THREE.Texture>();
 const HP_CACHE_LIMIT = 200;
@@ -84,7 +83,6 @@ export function createHpBarTexture(
   const tex = renderHpBar(hp, maxHp, name);
   hpBarCache.set(key, tex);
 
-  // Simple LRU trim
   if (hpBarCache.size > HP_CACHE_LIMIT) {
     const firstKey = hpBarCache.keys().next().value;
     if (firstKey !== undefined) {
@@ -248,11 +246,9 @@ function roundedRect(
 }
 
 // ============================================================
-// Warm-up — pre-render common textures so the first usage
-// never has to allocate or upload anything.
+// Prewarm common textures
 // ============================================================
 export function prewarmCommonTextures(): void {
-  // Common HP bar values for player and bots
   createHpBarTexture(9000, 9000, "Player");
   createHpBarTexture(700, 700, "Якарь");
   createHpBarTexture(700, 700, "Веин");
@@ -260,7 +256,6 @@ export function prewarmCommonTextures(): void {
   createHpBarTexture(700, 700, "Патриций");
   createHpBarTexture(800, 800, "Волк");
 
-  // Common damage values
   const colors = ["#ff8866", "#fff066", "#ffd966", "#ff5a3a", "#ff3020"];
   const values = [20, 40, 60, 80, 100, 200, 220, 350, 800];
   for (const v of values) {
