@@ -37,6 +37,7 @@ export type SaveData = {
   level: number;
   xp: number;
   totalXp: number;
+  playerName: string;
   ownedPlayerSkins: string[];
   currentPlayerSkin: string;
   ownedWolfSkins: string[];
@@ -174,6 +175,7 @@ export function makeDefaultSave(): SaveData {
     level: 1,
     xp: 0,
     totalXp: 0,
+    playerName: "",
     ownedPlayerSkins: ["default"],
     currentPlayerSkin: "default",
     ownedWolfSkins: ["wolf_default"],
@@ -194,6 +196,10 @@ export function loadSave(): SaveData {
       level: typeof parsed.level === "number" ? parsed.level : def.level,
       xp: typeof parsed.xp === "number" ? parsed.xp : def.xp,
       totalXp: typeof parsed.totalXp === "number" ? parsed.totalXp : def.totalXp,
+      playerName:
+        typeof parsed.playerName === "string"
+          ? parsed.playerName
+          : def.playerName,
       ownedPlayerSkins: Array.isArray(parsed.ownedPlayerSkins)
         ? parsed.ownedPlayerSkins.filter((id) =>
             PLAYER_SKINS.some((s) => s.id === id),
