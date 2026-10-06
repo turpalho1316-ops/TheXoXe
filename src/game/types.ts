@@ -149,7 +149,6 @@ export type Enemy = {
   bubbleUntil: number;
   monologueNextAt: number;
   spottedSpoken: boolean;
-  // Pet aggro
   targetPet: boolean;
 };
 
@@ -226,6 +225,8 @@ export type AIContext = {
   destroyed: boolean;
   sound: import("./sound").SoundEngine;
   pet: Pet | null;
+  damageNumbers: DamageNumber[];
+  sparks: Spark[];
   fireEnemyProjectile: (e: Enemy, dir: THREE.Vector2) => void;
   animateCharacter: (c: Character, speed: number, dt: number) => void;
   showBubbleFor: (e: Enemy, text: string) => void;
