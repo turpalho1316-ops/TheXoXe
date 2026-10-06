@@ -8,6 +8,7 @@ type Props = {
   killFeed: KillFeedEntry[];
   onUlt: () => void;
   onRetry: () => void;
+  onExit: () => void;
   coins: number;
   level: number;
   xp: number;
@@ -20,6 +21,7 @@ export default function HUD({
   killFeed,
   onUlt,
   onRetry,
+  onExit,
   coins,
   level,
   xp,
@@ -500,28 +502,62 @@ export default function HUD({
               ? `Ты разобрал противника ${state.kills} раз!`
               : "Не повезло. Реванш?"}
           </div>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="hud-button"
+          <div
             style={{
-              padding: "14px 44px",
-              fontSize: 20,
-              fontWeight: 900,
-              letterSpacing: "0.12em",
-              color: "#1a0d00",
-              background: "linear-gradient(180deg, #ffd17a 0%, #ff8a1f 100%)",
-              border: "3px solid rgba(255,255,255,0.35)",
-              borderRadius: 14,
-              cursor: "pointer",
-              boxShadow:
-                "0 8px 0 rgba(0,0,0,0.45), 0 14px 30px rgba(0,0,0,0.55)",
-              pointerEvents: "auto",
-              touchAction: "manipulation",
+              display: "flex",
+              gap: 14,
+              marginTop: 6,
             }}
           >
-            RETRY
-          </button>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="hud-button"
+              style={{
+                padding: "14px 32px",
+                fontSize: 18,
+                fontWeight: 900,
+                letterSpacing: "0.1em",
+                color: "#1a0d00",
+                background:
+                  "linear-gradient(180deg, #ffd17a 0%, #ff8a1f 100%)",
+                border: "3px solid rgba(255,255,255,0.35)",
+                borderRadius: 14,
+                cursor: "pointer",
+                boxShadow:
+                  "0 8px 0 rgba(0,0,0,0.45), 0 14px 30px rgba(0,0,0,0.55)",
+                pointerEvents: "auto",
+                touchAction: "manipulation",
+                fontFamily: "inherit",
+              }}
+            >
+              RETRY
+            </button>
+            <button
+              type="button"
+              onClick={onExit}
+              className="hud-button"
+              style={{
+                padding: "14px 32px",
+                fontSize: 18,
+                fontWeight: 900,
+                letterSpacing: "0.1em",
+                color: "#eaf5ff",
+                background:
+                  "linear-gradient(180deg, #4a7ac0 0%, #1d3d7a 100%)",
+                border: "3px solid rgba(255,255,255,0.28)",
+                borderRadius: 14,
+                cursor: "pointer",
+                boxShadow:
+                  "0 8px 0 rgba(0,0,0,0.45), 0 14px 30px rgba(0,0,0,0.55)",
+                pointerEvents: "auto",
+                touchAction: "manipulation",
+                fontFamily: "inherit",
+              }}
+            >
+              В МЕНЮ
+            </button>
+          </div>
         </div>
       )}
 
