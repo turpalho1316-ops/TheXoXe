@@ -7,10 +7,6 @@ import {
   AIM_LENGTH,
   AIM_WIDTH,
   CRATE_HP,
-  NIGHT_AMBIENT_INTENSITY,
-  NIGHT_MOON_INTENSITY,
-  NIGHT_LAMP_INTENSITY,
-  NIGHT_LAMP_DISTANCE,
 } from "./config";
 import type { Obstacle, Crate, Bush, MapType } from "./types";
 
@@ -43,21 +39,21 @@ const BUSH_DEFS: { x: number; z: number; r: number }[] = [
   { x: 0, z: 0, r: 2.2 },
 ];
 
+// Fewer lamps — 8 instead of 12
 const LAMP_DEFS: { x: number; z: number }[] = [
-  { x: -20, z: -40 },
-  { x: 20, z: -40 },
-  { x: -20, z: -20 },
-  { x: 20, z: -20 },
-  { x: -20, z: 0 },
-  { x: 20, z: 0 },
-  { x: -20, z: 20 },
-  { x: 20, z: 20 },
-  { x: -20, z: 40 },
-  { x: 20, z: 40 },
+  { x: -18, z: -35 },
+  { x: 18, z: -35 },
+  { x: -18, z: 0 },
+  { x: 18, z: 0 },
+  { x: -18, z: 35 },
+  { x: 18, z: 35 },
   { x: 0, z: -50 },
   { x: 0, z: 50 },
 ];
 
+// ============================================================
+// Lights — no dynamic shadows at night, high ambient
+// ============================================================
 export function setupLights(scene: THREE.Scene, mode: MapType): void {
   if (mode === "day") {
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
@@ -79,23 +75,16 @@ export function setupLights(scene: THREE.Scene, mode: MapType): void {
     const fill = new THREE.HemisphereLight(0xa8d8ff, 0x4a3a20, 0.35);
     scene.add(fill);
   } else {
-    const ambient = new THREE.AmbientLight(0x35507a, NIGHT_AMBIENT_INTENSITY);
+    // Night — no shadows, higher ambient so the map is readable
+    const ambient = new THREE.AmbientLight(0x6078a0, 0.75);
     scene.add(ambient);
 
-    const moon = new THREE.DirectionalLight(0x9db8e8, NIGHT_MOON_INTENSITY);
+    const moon = new THREE.DirectionalLight(0xa8c0e8, 0.55);
     moon.position.set(-25, 40, 20);
-    moon.castShadow = true;
-    moon.shadow.mapSize.set(2048, 2048);
-    moon.shadow.camera.left = -40;
-    moon.shadow.camera.right = 40;
-    moon.shadow.camera.top = 60;
-    moon.shadow.camera.bottom = -60;
-    moon.shadow.camera.near = 1;
-    moon.shadow.camera.far = 120;
-    moon.shadow.bias = -0.001;
+    // NO shadows on purpose — huge perf win
     scene.add(moon);
 
-    const fill = new THREE.HemisphereLight(0x2a3a5a, 0x0a0a15, 0.25);
+    const fill = new THREE.HemisphereLight(0x4a5a7a, 0x0a0f1a, 0.45);
     scene.add(fill);
   }
 }
@@ -112,7 +101,7 @@ export function setupGround(scene: THREE.Scene, mode: MapType): void {
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.rotation.x = -Math.PI / 2;
-  mesh.receiveShadow = true;
+  mesh.receiveShadow = mode === "day"; // no shadow receive at night
   scene.add(mesh);
 
   const borderGeo = new THREE.PlaneGeometry(MAP_W + 2, MAP_H + 2);
@@ -123,7 +112,6 @@ export function setupGround(scene: THREE.Scene, mode: MapType): void {
   const border = new THREE.Mesh(borderGeo, borderMat);
   border.rotation.x = -Math.PI / 2;
   border.position.y = -0.05;
-  border.receiveShadow = true;
   scene.add(border);
 }
 
@@ -166,8 +154,8 @@ export function setupWalls(
   positions.forEach(([g, x, z]) => {
     const m = new THREE.Mesh(g, fenceMat);
     m.position.set(x, 0.6, z);
-    m.castShadow = true;
-    m.receiveShadow = true;
+    m.castShadow = mode === "day";
+    m.receiveShadow = mode === "day";
     scene.add(m);
   });
 }
@@ -188,8 +176,8 @@ export function setupObstacles(
     const geo = new THREE.BoxGeometry(o.size, 1.6, o.size);
     const mesh = new THREE.Mesh(geo, stoneMat);
     mesh.position.set(o.x, 0.8, o.z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.castShadow = mode === "day";
+    mesh.receiveShadow = mode === "day";
     scene.add(mesh);
 
     const body = Matter.Bodies.rectangle(o.x, o.z, o.size, o.size, {
@@ -297,8 +285,8 @@ export function setupBushes(scene: THREE.Scene, mode: MapType): Bush[] {
         d.r * 0.45 + Math.random() * 0.2,
         Math.sin(a) * dist,
       );
-      m.castShadow = true;
-      m.receiveShadow = true;
+      m.castShadow = mode === "day";
+      m.receiveShadow = mode === "day";
       grp.add(m);
     }
     grp.position.set(d.x, 0, d.z);
@@ -325,60 +313,100 @@ export function setupAimOverlay(scene: THREE.Scene): THREE.Mesh {
   return mesh;
 }
 
+// ============================================================
+// Street lamps — FAKE light (emissive + glow disk).
+// Zero PointLight = zero perf cost.
+// ============================================================
+function createGlowTexture(): THREE.Texture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const grad = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2,
+  );
+  grad.addColorStop(0, "rgba(255, 235, 170, 0.85)");
+  grad.addColorStop(0.4, "rgba(255, 220, 130, 0.45)");
+  grad.addColorStop(0.75, "rgba(255, 200, 90, 0.12)");
+  grad.addColorStop(1, "rgba(255, 200, 90, 0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 export function setupStreetLamps(scene: THREE.Scene): THREE.Group[] {
   const lamps: THREE.Group[] = [];
+  const glowTex = createGlowTexture();
 
   const poleMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1d24,
-    roughness: 0.5,
-    metalness: 0.6,
+    color: 0x2a2e38,
+    roughness: 0.6,
+    metalness: 0.5,
   });
   const lampHeadMat = new THREE.MeshStandardMaterial({
-    color: 0x22262e,
+    color: 0x333842,
     roughness: 0.4,
     metalness: 0.5,
   });
-  const bulbMat = new THREE.MeshStandardMaterial({
-    color: 0xffe8a0,
-    emissive: 0xffe8a0,
-    emissiveIntensity: 4.0,
+  // Bright emissive — reads as a lit bulb without any PointLight
+  const bulbMat = new THREE.MeshBasicMaterial({
+    color: 0xfff0b8,
+  });
+  const glowMat = new THREE.MeshBasicMaterial({
+    map: glowTex,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
   });
 
   for (const p of LAMP_DEFS) {
     const grp = new THREE.Group();
 
-    const poleGeo = new THREE.CylinderGeometry(0.08, 0.1, 4.6, 10);
+    const poleGeo = new THREE.CylinderGeometry(0.09, 0.11, 4.6, 10);
     const pole = new THREE.Mesh(poleGeo, poleMat);
     pole.position.y = 2.3;
-    pole.castShadow = true;
+    pole.castShadow = false;
     grp.add(pole);
 
-    const baseGeo = new THREE.CylinderGeometry(0.22, 0.28, 0.4, 10);
+    const baseGeo = new THREE.CylinderGeometry(0.24, 0.3, 0.4, 10);
     const base = new THREE.Mesh(baseGeo, poleMat);
     base.position.y = 0.2;
-    base.castShadow = true;
     grp.add(base);
 
-    const headGeo = new THREE.BoxGeometry(0.5, 0.22, 0.5);
+    const headGeo = new THREE.BoxGeometry(0.55, 0.22, 0.55);
     const head = new THREE.Mesh(headGeo, lampHeadMat);
     head.position.y = 4.7;
-    head.castShadow = true;
     grp.add(head);
 
-    const bulbGeo = new THREE.SphereGeometry(0.18, 12, 12);
+    // Big bright bulb
+    const bulbGeo = new THREE.SphereGeometry(0.24, 14, 14);
     const bulb = new THREE.Mesh(bulbGeo, bulbMat);
     bulb.position.y = 4.55;
     grp.add(bulb);
 
-    const light = new THREE.PointLight(
-      0xffe8a0,
-      NIGHT_LAMP_INTENSITY,
-      NIGHT_LAMP_DISTANCE,
-      1.6,
-    );
-    light.position.y = 4.5;
-    light.castShadow = false;
-    grp.add(light);
+    // Fake floor glow — horizontal disk that lights up the ground
+    const diskGeo = new THREE.PlaneGeometry(14, 14);
+    const disk = new THREE.Mesh(diskGeo, glowMat);
+    disk.rotation.x = -Math.PI / 2;
+    disk.position.y = 0.05;
+    disk.renderOrder = 5;
+    grp.add(disk);
+
+    // Second small halo, always facing camera — looks like light hanging in the air
+    const haloGeo = new THREE.PlaneGeometry(3.0, 3.0);
+    const halo = new THREE.Mesh(haloGeo, glowMat);
+    halo.position.y = 4.5;
+    grp.add(halo);
 
     grp.position.set(p.x, 0, p.z);
     scene.add(grp);
