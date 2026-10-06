@@ -5,10 +5,10 @@ import { createHpBarTexture } from "./textures";
 import { getWolfSkin } from "./save";
 
 // ============================================================
-// PLAYER / BOT CHARACTER
-// Style can be: player | pirate | skeleton | zombie | ninja |
-// clown | ghost | cowboy | robot | knight | samurai |
-// yakkar | vein | philosoph | patriciy
+// Build a character from primitives.
+// Used ONLY for NPCs (bots) and as a fallback for the player
+// when a .glb model is still loading or fails.
+// Player is always a real .glb model.
 // ============================================================
 export function buildCharacter(
   accentColor: number,
@@ -42,14 +42,10 @@ export function buildCharacter(
   let eyeColor = 0x6cf0ff;
   let eyeSize = 0.06;
   let eyeCount = 2;
-  let headgear: "cone" | "helmet" | "hood" | "cap" | "jester" | "hat" | "none" = "hood";
+  let headgear: "cone" | "helmet" | "hood" | "cap" | "jester" = "hood";
   let hasCape = false;
   let hasBackpack = false;
   let hasStaff = false;
-  let hasHat = false;
-  let hatStyle: "pirate" | "clown" | "cowboy" | "knight" | "samurai" | "none" = "none";
-  let glowing = false;
-  let limbColor: number | null = null;
 
   if (style === "player") {
     bodyW = 1.0;
@@ -57,91 +53,6 @@ export function buildCharacter(
     bodyColor = 0x33373d;
     eyeColor = 0x6cf0ff;
     headgear = "hood";
-  } else if (style === "pirate") {
-    bodyW = 1.1;
-    bodyH = 1.5;
-    bodyColor = 0x5a3a1a;
-    eyeColor = 0xffaa44;
-    headgear = "hood";
-    hasHat = true;
-    hatStyle = "pirate";
-  } else if (style === "skeleton") {
-    bodyW = 0.9;
-    bodyH = 1.5;
-    bodyColor = 0xe0e0d8;
-    eyeColor = 0xff2020;
-    eyeSize = 0.07;
-    headgear = "none";
-    limbColor = 0xd0d0c8;
-  } else if (style === "zombie") {
-    bodyW = 1.05;
-    bodyH = 1.5;
-    bodyColor = 0x4a6a2a;
-    eyeColor = 0xaaff44;
-    eyeSize = 0.07;
-    headgear = "none";
-    limbColor = 0x3a5a1a;
-  } else if (style === "ninja") {
-    bodyW = 0.95;
-    bodyH = 1.6;
-    bodyColor = 0x1a1a1a;
-    eyeColor = 0xff3030;
-    eyeSize = 0.06;
-    headgear = "hood";
-    hasCape = true;
-  } else if (style === "clown") {
-    bodyW = 1.15;
-    bodyH = 1.45;
-    bodyColor = 0xf0f0f0;
-    eyeColor = 0xff88ff;
-    eyeSize = 0.08;
-    headgear = "none";
-    hasHat = true;
-    hatStyle = "clown";
-  } else if (style === "ghost") {
-    bodyW = 1.0;
-    bodyH = 1.7;
-    bodyColor = 0xd0e8ff;
-    eyeColor = 0x88ccff;
-    eyeSize = 0.08;
-    headgear = "hood";
-    hasCape = true;
-    glowing = true;
-  } else if (style === "cowboy") {
-    bodyW = 1.0;
-    bodyH = 1.55;
-    bodyColor = 0x8a5a2a;
-    eyeColor = 0xffcc44;
-    eyeSize = 0.06;
-    headgear = "none";
-    hasHat = true;
-    hatStyle = "cowboy";
-  } else if (style === "robot") {
-    bodyW = 1.1;
-    bodyH = 1.5;
-    bodyColor = 0x708090;
-    eyeColor = 0x00ffcc;
-    eyeSize = 0.09;
-    headgear = "helmet";
-    limbColor = 0x505860;
-  } else if (style === "knight") {
-    bodyW = 1.2;
-    bodyH = 1.55;
-    bodyColor = 0x9098a8;
-    eyeColor = 0x66aaff;
-    eyeSize = 0.05;
-    headgear = "helmet";
-    hasHat = true;
-    hatStyle = "knight";
-  } else if (style === "samurai") {
-    bodyW = 1.05;
-    bodyH = 1.55;
-    bodyColor = 0xb02020;
-    eyeColor = 0xffffff;
-    eyeSize = 0.06;
-    headgear = "helmet";
-    hasHat = true;
-    hatStyle = "samurai";
   } else if (style === "yakkar") {
     bodyW = 1.2;
     bodyH = 1.35;
@@ -176,18 +87,10 @@ export function buildCharacter(
     hasBackpack = true;
   }
 
-  const matLimbFinal = limbColor !== null
-    ? new THREE.MeshStandardMaterial({ color: limbColor, roughness: 0.7 })
-    : matLimb;
-
   const matBody = new THREE.MeshStandardMaterial({
     color: bodyColor,
     roughness: 0.55,
     metalness: 0.25,
-    emissive: glowing ? bodyColor : 0x000000,
-    emissiveIntensity: glowing ? 0.35 : 0,
-    transparent: glowing,
-    opacity: glowing ? 0.75 : 1.0,
   });
 
   const bodyGeo = new THREE.SphereGeometry(0.42, 16, 16);
@@ -288,93 +191,6 @@ export function buildCharacter(
     }
   }
 
-  // Extra hats
-  if (hasHat) {
-    if (hatStyle === "pirate") {
-      const brimGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.06, 20);
-      const brim = new THREE.Mesh(brimGeo, matHead);
-      brim.position.y = headY + 0.22;
-      group.add(brim);
-      const topGeo = new THREE.CylinderGeometry(0.28, 0.32, 0.35, 16);
-      const top = new THREE.Mesh(topGeo, matHead);
-      top.position.y = headY + 0.4;
-      group.add(top);
-      const skullGeo = new THREE.SphereGeometry(0.09, 8, 8);
-      const skull = new THREE.Mesh(
-        skullGeo,
-        new THREE.MeshStandardMaterial({
-          color: 0xffffff,
-          emissive: 0xffffff,
-          emissiveIntensity: 0.4,
-        }),
-      );
-      skull.position.set(0, headY + 0.4, 0.31);
-      group.add(skull);
-    } else if (hatStyle === "clown") {
-      const hairColors = [0xff3030, 0xffcc00, 0x66ccff];
-      for (let i = 0; i < 6; i++) {
-        const puffGeo = new THREE.SphereGeometry(0.16, 8, 8);
-        const puff = new THREE.Mesh(
-          puffGeo,
-          new THREE.MeshStandardMaterial({
-            color: hairColors[i % 3],
-            roughness: 0.8,
-          }),
-        );
-        const ang = (i / 6) * Math.PI * 2;
-        puff.position.set(
-          Math.cos(ang) * 0.35,
-          headY + 0.25,
-          Math.sin(ang) * 0.35,
-        );
-        group.add(puff);
-      }
-      const noseGeo = new THREE.SphereGeometry(0.08, 10, 10);
-      const nose = new THREE.Mesh(
-        noseGeo,
-        new THREE.MeshStandardMaterial({
-          color: 0xff0000,
-          emissive: 0xff2020,
-          emissiveIntensity: 0.5,
-        }),
-      );
-      nose.position.set(0, headY - 0.02, 0.3);
-      group.add(nose);
-    } else if (hatStyle === "cowboy") {
-      const brimGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.05, 20);
-      const brim = new THREE.Mesh(brimGeo, matHead);
-      brim.position.y = headY + 0.22;
-      group.add(brim);
-      const topGeo = new THREE.CylinderGeometry(0.3, 0.36, 0.4, 16);
-      const top = new THREE.Mesh(topGeo, matHead);
-      top.position.y = headY + 0.44;
-      group.add(top);
-    } else if (hatStyle === "knight") {
-      const plumeGeo = new THREE.ConeGeometry(0.1, 0.5, 8);
-      const plume = new THREE.Mesh(
-        plumeGeo,
-        new THREE.MeshStandardMaterial({
-          color: 0xff2020,
-          roughness: 0.6,
-        }),
-      );
-      plume.position.y = headY + 0.7;
-      group.add(plume);
-    } else if (hatStyle === "samurai") {
-      const crestGeo = new THREE.BoxGeometry(0.08, 0.4, 0.08);
-      const crest = new THREE.Mesh(
-        crestGeo,
-        new THREE.MeshStandardMaterial({
-          color: 0xffcc00,
-          emissive: 0xffcc00,
-          emissiveIntensity: 0.6,
-        }),
-      );
-      crest.position.set(0, headY + 0.55, 0.05);
-      group.add(crest);
-    }
-  }
-
   const eyeGeo = new THREE.SphereGeometry(eyeSize, 10, 10);
   const matEye = new THREE.MeshStandardMaterial({
     color: eyeColor,
@@ -414,11 +230,11 @@ export function buildCharacter(
   const armLowerGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.4, 8);
   const buildArm = (side: 1 | -1): THREE.Group => {
     const arm = new THREE.Group();
-    const upper = new THREE.Mesh(armUpperGeo, matLimbFinal);
+    const upper = new THREE.Mesh(armUpperGeo, matLimb);
     upper.position.y = -0.21;
     upper.castShadow = true;
     arm.add(upper);
-    const lower = new THREE.Mesh(armLowerGeo, matLimbFinal);
+    const lower = new THREE.Mesh(armLowerGeo, matLimb);
     lower.position.set(side * 0.06, -0.55, 0.1);
     lower.rotation.x = -0.35;
     lower.castShadow = true;
@@ -435,11 +251,11 @@ export function buildCharacter(
   group.add(armR);
 
   const legGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.4, 8);
-  const legL = new THREE.Mesh(legGeo, matLimbFinal);
+  const legL = new THREE.Mesh(legGeo, matLimb);
   legL.position.set(-0.18 * bodyW, 0.55, 0);
   legL.castShadow = true;
   group.add(legL);
-  const legR = new THREE.Mesh(legGeo, matLimbFinal);
+  const legR = new THREE.Mesh(legGeo, matLimb);
   legR.position.set(0.18 * bodyW, 0.55, 0);
   legR.castShadow = true;
   group.add(legR);
@@ -474,7 +290,7 @@ export function buildCharacter(
 
   if (hasStaff) {
     const staffGeo = new THREE.CylinderGeometry(0.04, 0.04, 2.4, 8);
-    const staff = new THREE.Mesh(staffGeo, matLimbFinal);
+    const staff = new THREE.Mesh(staffGeo, matLimb);
     staff.position.set(0.62, 0.9, 0.15);
     staff.rotation.z = -0.15;
     staff.castShadow = true;
@@ -547,7 +363,7 @@ export function setCharacterOpacity(c: Character, opacity: number): void {
 }
 
 // ============================================================
-// PET — wolf, with skin support
+// PET — procedural wolf (placeholder until we find a .glb wolf)
 // ============================================================
 export function buildPet(wolfSkinId: string = "wolf_default"): Pet {
   const group = new THREE.Group();
@@ -557,8 +373,11 @@ export function buildPet(wolfSkinId: string = "wolf_default"): Pet {
     color: skin.bodyColor,
     roughness: 0.9,
   });
+  const darkColor = new THREE.Color(skin.bodyColor)
+    .multiplyScalar(0.55)
+    .getHex();
   const matFurDark = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(skin.bodyColor).multiplyScalar(0.55).getHex(),
+    color: darkColor,
     roughness: 0.9,
   });
   const matNose = new THREE.MeshStandardMaterial({
@@ -666,10 +485,7 @@ export function buildPet(wolfSkinId: string = "wolf_default"): Pet {
     transparent: true,
     opacity: 0.3,
   });
-  const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.6, 20),
-    shadowMat,
-  );
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.6, 20), shadowMat);
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.01;
   group.add(shadow);
