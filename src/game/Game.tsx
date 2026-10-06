@@ -50,7 +50,7 @@ export default function Game() {
   const rewardedRef = useRef(false);
 
   const [started, setStarted] = useState(false);
-  const [playerName, setPlayerName] = useState("");
+  const [playerName, setPlayerName] = useState(saveRef.current.playerName);
   const [mapType, setMapType] = useState<MapType>("day");
   const [killFeed, setKillFeed] = useState<KillFeedEntry[]>([]);
   const [save, setSave] = useState<SaveData>(saveRef.current);
@@ -230,6 +230,11 @@ export default function Game() {
     statsRef.current.killsThisMatch = 0;
     statsRef.current.petKillsThisMatch = 0;
     rewardedRef.current = false;
+    // Persist the player name for next sessions
+    if (saveRef.current.playerName !== name) {
+      const next: SaveData = { ...saveRef.current, playerName: name };
+      persist(next);
+    }
     setStarted(true);
   };
 
