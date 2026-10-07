@@ -3,7 +3,7 @@ import { createDamageNumberTexture } from "./textures";
 import type { MuzzleFlash, Spark, DamageNumber, Pickup } from "./types";
 
 // ============================================================
-// Muzzle flash — no PointLight, only a glowing sphere
+// Muzzle flash
 // ============================================================
 export function spawnMuzzleFlash(
   scene: THREE.Scene,
@@ -72,6 +72,7 @@ export function spawnSparks(
       transparent: true,
       opacity: 1,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
     });
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
@@ -261,15 +262,19 @@ export function removePickup(
 }
 
 // ============================================================
-// BULLET VISUAL — animated energy sphere
-// Core + aura + 2 rotating rings, all grouped together.
-// The whole group is what moves on the world.
+// BULLET VISUAL — energy sphere with comet trail
+// Structure (local space, group faces +Z = direction of flight):
+//   - bright core (sphere)
+//   - soft aura (sphere, pulsing)
+//   - 2 rings (torus) perpendicular to flight
+//   - long tapered tail (cone) behind the core
 // ============================================================
 export type BulletVisualMaterials = {
   core: THREE.Material;
   aura: THREE.Material;
   ring1: THREE.Material;
   ring2: THREE.Material;
+  tail: THREE.Material;
 };
 
 export function buildBulletVisual(
@@ -278,40 +283,54 @@ export function buildBulletVisual(
 ): THREE.Group {
   const group = new THREE.Group();
 
-  const coreR = isUlt ? 0.42 : 0.18;
-  const auraR = isUlt ? 0.7 : 0.32;
-  const ringR = isUlt ? 0.62 : 0.34;
+  const coreR = isUlt ? 0.45 : 0.22;
+  const auraR = isUlt ? 0.75 : 0.40;
+  const ringR = isUlt ? 0.85 : 0.45;
+  const ringTube = isUlt ? 0.08 : 0.045;
+  const tailH = isUlt ? 3.2 : 1.9;
+  const tailR = isUlt ? 0.32 : 0.17;
 
-  const coreGeo = new THREE.SphereGeometry(coreR, 12, 12);
+  // Bright core
+  const coreGeo = new THREE.SphereGeometry(coreR, 14, 14);
   const core = new THREE.Mesh(coreGeo, mats.core);
   group.add(core);
   group.userData.core = core;
 
-  const auraGeo = new THREE.SphereGeometry(auraR, 14, 14);
+  // Soft aura (pulses)
+  const auraGeo = new THREE.SphereGeometry(auraR, 16, 16);
   const aura = new THREE.Mesh(auraGeo, mats.aura);
   group.add(aura);
   group.userData.aura = aura;
 
-  const ring1Geo = new THREE.TorusGeometry(ringR, isUlt ? 0.045 : 0.022, 6, 28);
+  // Ring 1 — perpendicular to flight direction
+  const ring1Geo = new THREE.TorusGeometry(ringR, ringTube, 8, 32);
   const ring1 = new THREE.Mesh(ring1Geo, mats.ring1);
-  ring1.rotation.x = Math.PI / 3;
-  ring1.rotation.y = 0.4;
+  ring1.rotation.x = 0.35;
   group.add(ring1);
   group.userData.ring1 = ring1;
 
-  const ring2Geo = new THREE.TorusGeometry(
-    ringR * 0.82,
-    isUlt ? 0.04 : 0.018,
-    6,
-    24,
-  );
+  // Ring 2 — tilt the other way
+  const ring2Geo = new THREE.TorusGeometry(ringR * 0.82, ringTube * 0.85, 8, 28);
   const ring2 = new THREE.Mesh(ring2Geo, mats.ring2);
-  ring2.rotation.x = -Math.PI / 4;
-  ring2.rotation.y = -0.6;
+  ring2.rotation.x = -0.4;
+  ring2.rotation.y = 0.3;
   group.add(ring2);
   group.userData.ring2 = ring2;
 
+  // Comet tail — a cone behind the core, pointing BACK (-Z local).
+  // ConeGeometry: apex is +Y, base is -Y, center at 0.
+  // rotation.x = -PI/2 → apex goes to -Z, base to +Z.
+  // Position: center at -tailH/2, so base (at 0 offset from center in -Y→+Z)
+  // sits near z=0 and apex reaches z=-tailH.
+  const tailGeo = new THREE.ConeGeometry(tailR, tailH, 14, 1, true);
+  const tail = new THREE.Mesh(tailGeo, mats.tail);
+  tail.rotation.x = -Math.PI / 2;
+  tail.position.set(0, 0, -tailH / 2);
+  group.add(tail);
+  group.userData.tail = tail;
+
   group.userData.phase = Math.random() * Math.PI * 2;
+  group.userData.isUlt = isUlt;
 
   return group;
 }
@@ -320,29 +339,33 @@ export function animateBulletVisual(
   group: THREE.Object3D,
   dt: number,
 ): void {
-  const phase = (group.userData.phase || 0) + dt * 12;
+  const phase = (group.userData.phase || 0) + dt * 10;
   group.userData.phase = phase;
 
+  const aura = group.userData.aura as THREE.Mesh | undefined;
   const ring1 = group.userData.ring1 as THREE.Mesh | undefined;
   const ring2 = group.userData.ring2 as THREE.Mesh | undefined;
-  const aura = group.userData.aura as THREE.Mesh | undefined;
+  const tail = group.userData.tail as THREE.Mesh | undefined;
 
+  if (aura) {
+    const pulse = 1 + Math.sin(phase) * 0.14;
+    aura.scale.set(pulse, pulse, pulse);
+  }
   if (ring1) {
-    ring1.rotation.z += dt * 6;
-    ring1.rotation.x += dt * 2.4;
+    // Slight wobble around its own tilt axis — looks alive
+    ring1.rotation.z += dt * 3.5;
+    ring1.rotation.x = 0.35 + Math.sin(phase * 0.7) * 0.08;
   }
   if (ring2) {
-    ring2.rotation.z -= dt * 8;
-    ring2.rotation.y += dt * 3.2;
+    ring2.rotation.z -= dt * 4.5;
+    ring2.rotation.x = -0.4 + Math.cos(phase * 0.8) * 0.08;
   }
-  if (aura) {
-    const pulse = 1 + Math.sin(phase) * 0.16;
-    aura.scale.set(pulse, pulse, pulse);
+  if (tail) {
+    const tailMat = tail.material as THREE.MeshBasicMaterial;
+    tailMat.opacity = 0.55 + Math.sin(phase * 1.3) * 0.15;
   }
 }
 
-// Material factory — one set per bullet kind so we don't
-// allocate at runtime.
 export function makeBulletMaterials(
   color: number,
   emissive: number,
@@ -356,23 +379,31 @@ export function makeBulletMaterials(
   const aura = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
-    opacity: isUlt ? 0.55 : 0.45,
+    opacity: isUlt ? 0.6 : 0.5,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
   const ring1 = new THREE.MeshBasicMaterial({
     color: emissive,
     transparent: true,
-    opacity: 0.85,
+    opacity: 1.0,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
   const ring2 = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
-    opacity: 0.6,
+    opacity: 0.85,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
-  return { core, aura, ring1, ring2 };
+  const tail = new THREE.MeshBasicMaterial({
+    color: emissive,
+    transparent: true,
+    opacity: 0.65,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+  return { core, aura, ring1, ring2, tail };
 }
