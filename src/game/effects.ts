@@ -13,7 +13,6 @@ export function spawnMuzzleFlash(
   color: number,
   now: number,
 ): void {
-  // Reuse a dummy light (0 intensity) so type stays compatible
   const light = new THREE.PointLight(color, 0, 0);
   const glow = new THREE.Mesh(
     new THREE.SphereGeometry(0.45, 10, 10),
@@ -121,7 +120,7 @@ export function updateSparks(
 }
 
 // ============================================================
-// Damage numbers — smaller, faster fade
+// Damage numbers
 // ============================================================
 const DMG_LIFE = 0.75;
 const DMG_SCALE_X = 1.35;
@@ -259,4 +258,121 @@ export function removePickup(
     }
   });
   pickups.splice(index, 1);
+}
+
+// ============================================================
+// BULLET VISUAL — animated energy sphere
+// Core + aura + 2 rotating rings, all grouped together.
+// The whole group is what moves on the world.
+// ============================================================
+export type BulletVisualMaterials = {
+  core: THREE.Material;
+  aura: THREE.Material;
+  ring1: THREE.Material;
+  ring2: THREE.Material;
+};
+
+export function buildBulletVisual(
+  mats: BulletVisualMaterials,
+  isUlt: boolean,
+): THREE.Group {
+  const group = new THREE.Group();
+
+  const coreR = isUlt ? 0.42 : 0.18;
+  const auraR = isUlt ? 0.7 : 0.32;
+  const ringR = isUlt ? 0.62 : 0.34;
+
+  const coreGeo = new THREE.SphereGeometry(coreR, 12, 12);
+  const core = new THREE.Mesh(coreGeo, mats.core);
+  group.add(core);
+  group.userData.core = core;
+
+  const auraGeo = new THREE.SphereGeometry(auraR, 14, 14);
+  const aura = new THREE.Mesh(auraGeo, mats.aura);
+  group.add(aura);
+  group.userData.aura = aura;
+
+  const ring1Geo = new THREE.TorusGeometry(ringR, isUlt ? 0.045 : 0.022, 6, 28);
+  const ring1 = new THREE.Mesh(ring1Geo, mats.ring1);
+  ring1.rotation.x = Math.PI / 3;
+  ring1.rotation.y = 0.4;
+  group.add(ring1);
+  group.userData.ring1 = ring1;
+
+  const ring2Geo = new THREE.TorusGeometry(
+    ringR * 0.82,
+    isUlt ? 0.04 : 0.018,
+    6,
+    24,
+  );
+  const ring2 = new THREE.Mesh(ring2Geo, mats.ring2);
+  ring2.rotation.x = -Math.PI / 4;
+  ring2.rotation.y = -0.6;
+  group.add(ring2);
+  group.userData.ring2 = ring2;
+
+  group.userData.phase = Math.random() * Math.PI * 2;
+
+  return group;
+}
+
+export function animateBulletVisual(
+  group: THREE.Object3D,
+  dt: number,
+): void {
+  const phase = (group.userData.phase || 0) + dt * 12;
+  group.userData.phase = phase;
+
+  const ring1 = group.userData.ring1 as THREE.Mesh | undefined;
+  const ring2 = group.userData.ring2 as THREE.Mesh | undefined;
+  const aura = group.userData.aura as THREE.Mesh | undefined;
+
+  if (ring1) {
+    ring1.rotation.z += dt * 6;
+    ring1.rotation.x += dt * 2.4;
+  }
+  if (ring2) {
+    ring2.rotation.z -= dt * 8;
+    ring2.rotation.y += dt * 3.2;
+  }
+  if (aura) {
+    const pulse = 1 + Math.sin(phase) * 0.16;
+    aura.scale.set(pulse, pulse, pulse);
+  }
+}
+
+// Material factory — one set per bullet kind so we don't
+// allocate at runtime.
+export function makeBulletMaterials(
+  color: number,
+  emissive: number,
+  isUlt: boolean,
+): BulletVisualMaterials {
+  const core = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 1.0,
+  });
+  const aura = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: isUlt ? 0.55 : 0.45,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const ring1 = new THREE.MeshBasicMaterial({
+    color: emissive,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const ring2 = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  return { core, aura, ring1, ring2 };
 }
