@@ -898,6 +898,7 @@ export class Engine {
       : this.poolNormalMesh[poolIdx];
     group.visible = true;
     group.position.set(opts.px, 1.0, opts.pz);
+    group.rotation.y = Math.atan2(opts.vx, opts.vz);
 
     const r = opts.ult ? 0.55 : 0.25;
     const body = Matter.Bodies.circle(opts.px, opts.pz, r, {
@@ -1179,6 +1180,7 @@ export class Engine {
       }
 
       p.mesh.position.set(p.body.position.x, 1.0, p.body.position.y);
+      p.mesh.rotation.y = Math.atan2(p.vx, p.vz);
       animateBulletVisual(p.mesh, dt);
 
       if (hit) {
