@@ -106,7 +106,7 @@ export type Projectile = {
   id: string;
   ownerId: string;
   ownerName: string;
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   body: Matter.Body;
   spawnedAt: number;
   ttl: number;
