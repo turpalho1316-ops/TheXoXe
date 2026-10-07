@@ -74,6 +74,9 @@ import {
   spawnPickup,
   updatePickupsVisuals,
   removePickup,
+  buildBulletVisual,
+  animateBulletVisual,
+  makeBulletMaterials,
 } from "./effects";
 import {
   updateEnemies,
@@ -220,9 +223,9 @@ export class Engine {
   private damageNumbers: DamageNumber[] = [];
   private pet: Pet | null = null;
 
-  private poolNormalMesh: THREE.Mesh[] = [];
+  private poolNormalMesh: THREE.Group[] = [];
   private poolNormalFree: number[] = [];
-  private poolUltMesh: THREE.Mesh[] = [];
+  private poolUltMesh: THREE.Group[] = [];
   private poolUltFree: number[] = [];
 
   private keys: Record<string, boolean> = {};
@@ -243,9 +246,6 @@ export class Engine {
   private nextProjectileId = 1;
   private simTick = 0;
 
-  // Dead-zone camera: the world position the camera is currently
-  // "framed" on. Not the same as `camera.position` — this is the
-  // logical target that only moves when the player leaves the zone.
   private camFocusX = 0;
   private camFocusZ = 0;
 
@@ -324,42 +324,28 @@ export class Engine {
   }
 
   private buildProjectilePool() {
-    const normalGeo = new THREE.SphereGeometry(0.25, 10, 10);
-    const ultGeo = new THREE.SphereGeometry(0.55, 14, 14);
-    const playerMat = new THREE.MeshStandardMaterial({
-      color: 0xffe066,
-      emissive: 0xffaa00,
-      emissiveIntensity: 1.6,
-      roughness: 0.4,
-    });
-    const enemyMat = new THREE.MeshStandardMaterial({
-      color: 0xff6655,
-      emissive: 0xff3322,
-      emissiveIntensity: 1.6,
-      roughness: 0.4,
-    });
-    const ultMat = new THREE.MeshStandardMaterial({
-      color: 0xffff66,
-      emissive: 0xffcc00,
-      emissiveIntensity: 2.2,
-      roughness: 0.4,
-    });
+    const playerMats = makeBulletMaterials(0xffe066, 0xffaa00, false);
+    const enemyMats = makeBulletMaterials(0xff6655, 0xff3322, false);
+    const ultMats = makeBulletMaterials(0xffff66, 0xffcc00, true);
 
     for (let i = 0; i < POOL_SIZE_NORMAL; i++) {
       const isPlayer = i < POOL_SIZE_NORMAL / 2;
-      const mesh = new THREE.Mesh(normalGeo, isPlayer ? playerMat : enemyMat);
-      mesh.visible = false;
-      mesh.position.set(0, -100, 0);
-      this.scene.add(mesh);
-      this.poolNormalMesh.push(mesh);
+      const group = buildBulletVisual(
+        isPlayer ? playerMats : enemyMats,
+        false,
+      );
+      group.visible = false;
+      group.position.set(0, -100, 0);
+      this.scene.add(group);
+      this.poolNormalMesh.push(group);
       this.poolNormalFree.push(i);
     }
     for (let i = 0; i < POOL_SIZE_ULT; i++) {
-      const mesh = new THREE.Mesh(ultGeo, ultMat);
-      mesh.visible = false;
-      mesh.position.set(0, -100, 0);
-      this.scene.add(mesh);
-      this.poolUltMesh.push(mesh);
+      const group = buildBulletVisual(ultMats, true);
+      group.visible = false;
+      group.position.set(0, -100, 0);
+      this.scene.add(group);
+      this.poolUltMesh.push(group);
       this.poolUltFree.push(i);
     }
   }
@@ -907,11 +893,11 @@ export class Engine {
       poolIdx = usePool.splice(idxInFree, 1)[0];
     }
 
-    const mesh = opts.ult
+    const group = opts.ult
       ? this.poolUltMesh[poolIdx]
       : this.poolNormalMesh[poolIdx];
-    mesh.visible = true;
-    mesh.position.set(opts.px, 1.0, opts.pz);
+    group.visible = true;
+    group.position.set(opts.px, 1.0, opts.pz);
 
     const r = opts.ult ? 0.55 : 0.25;
     const body = Matter.Bodies.circle(opts.px, opts.pz, r, {
@@ -924,7 +910,7 @@ export class Engine {
       id: `pr_${this.nextProjectileId++}`,
       ownerId: opts.ownerId,
       ownerName: opts.ownerName,
-      mesh,
+      mesh: group,
       body,
       spawnedAt: this.clock.getElapsedTime(),
       ttl: opts.ult ? ULT_PROJECTILE_TTL : PROJECTILE_TTL,
@@ -942,14 +928,14 @@ export class Engine {
     Matter.World.remove(this.world, p.body);
 
     if (p.ult) {
-      const idx = this.poolUltMesh.indexOf(p.mesh);
+      const idx = this.poolUltMesh.indexOf(p.mesh as THREE.Group);
       if (idx >= 0) {
         p.mesh.visible = false;
         p.mesh.position.set(0, -100, 0);
         this.poolUltFree.push(idx);
       }
     } else {
-      const idx = this.poolNormalMesh.indexOf(p.mesh);
+      const idx = this.poolNormalMesh.indexOf(p.mesh as THREE.Group);
       if (idx >= 0) {
         p.mesh.visible = false;
         p.mesh.position.set(0, -100, 0);
@@ -988,10 +974,11 @@ export class Engine {
       if (this.playerVel.lengthSq() < 0.0005) this.playerVel.set(0, 0);
     }
 
-    Matter.Body.setVelocity(this.playerBody, {
-      x: this.playerVel.x * dt,
-      y: this.playerVel.y * dt,
+    Matter.Body.setPosition(this.playerBody, {
+      x: this.playerBody.position.x + this.playerVel.x * dt,
+      y: this.playerBody.position.y + this.playerVel.y * dt,
     });
+    Matter.Body.setVelocity(this.playerBody, { x: 0, y: 0 });
 
     if (this.playerVel.lengthSq() > 0.05) {
       const targetAngle = Math.atan2(this.playerVel.x, this.playerVel.y);
@@ -1192,6 +1179,7 @@ export class Engine {
       }
 
       p.mesh.position.set(p.body.position.x, 1.0, p.body.position.y);
+      animateBulletVisual(p.mesh, dt);
 
       if (hit) {
         if (hitWorld) {
@@ -1469,67 +1457,54 @@ export class Engine {
     }
   }
 
-  // ============================================================
-  // Camera with dead-zone (Brawl Stars style).
-  //
-  // The camera is locked to a "focus point" (camFocusX/camFocusZ).
-  // That focus point only moves when the player leaves the dead-zone
-  // rectangle — a small area around the focus point. Inside the zone,
-  // the player moves freely and the camera stays perfectly still.
-  //
-  // This removes the constant micro-movement of the camera while
-  // preserving the smooth catch-up when the player goes far enough.
-  // ============================================================
   private updateCamera(snap = false) {
-  const px = this.playerBody.position.x;
-  const pz = this.playerBody.position.y;
+    const px = this.playerBody.position.x;
+    const pz = this.playerBody.position.y;
 
-  const Y_TILT = 0.72;
-  const halfW = CAM_VIEW_HEIGHT * this.getAspect() * 0.5;
-  const halfH = CAM_VIEW_HEIGHT * 0.5 / Y_TILT;
+    const Y_TILT = 0.72;
+    const halfW = CAM_VIEW_HEIGHT * this.getAspect() * 0.5;
+    const halfH = CAM_VIEW_HEIGHT * 0.5 / Y_TILT;
 
-  const deadX = halfW * CAM_DEADZONE_X;
-  const deadZ = halfH * CAM_DEADZONE_Y;
+    const deadX = halfW * CAM_DEADZONE_X;
+    const deadZ = halfH * CAM_DEADZONE_Y;
 
-  const dx = px - this.camFocusX;
-  const dz = pz - this.camFocusZ;
+    const dx = px - this.camFocusX;
+    const dz = pz - this.camFocusZ;
 
-  if (dx > deadX) this.camFocusX = px - deadX;
-  else if (dx < -deadX) this.camFocusX = px + deadX;
+    if (dx > deadX) this.camFocusX = px - deadX;
+    else if (dx < -deadX) this.camFocusX = px + deadX;
 
-  if (dz > deadZ) this.camFocusZ = pz - deadZ;
-  else if (dz < -deadZ) this.camFocusZ = pz + deadZ;
+    if (dz > deadZ) this.camFocusZ = pz - deadZ;
+    else if (dz < -deadZ) this.camFocusZ = pz + deadZ;
 
-  // Soft clamp: camFocus may go slightly beyond the map edge
-  // (1 meter). That keeps the player visible near walls.
-  const halfMapW = MAP_W / 2;
-  const halfMapH = MAP_H / 2;
-  const softMargin = 1;
-  if (this.camFocusX < -halfMapW + softMargin)
-    this.camFocusX = -halfMapW + softMargin;
-  if (this.camFocusX > halfMapW - softMargin)
-    this.camFocusX = halfMapW - softMargin;
-  if (this.camFocusZ < -halfMapH + softMargin)
-    this.camFocusZ = -halfMapH + softMargin;
-  if (this.camFocusZ > halfMapH - softMargin)
-    this.camFocusZ = halfMapH - softMargin;
+    const halfMapW = MAP_W / 2;
+    const halfMapH = MAP_H / 2;
+    const softMargin = 1;
+    if (this.camFocusX < -halfMapW + softMargin)
+      this.camFocusX = -halfMapW + softMargin;
+    if (this.camFocusX > halfMapW - softMargin)
+      this.camFocusX = halfMapW - softMargin;
+    if (this.camFocusZ < -halfMapH + softMargin)
+      this.camFocusZ = -halfMapH + softMargin;
+    if (this.camFocusZ > halfMapH - softMargin)
+      this.camFocusZ = halfMapH - softMargin;
 
-  const focus = new THREE.Vector3(this.camFocusX, 0, this.camFocusZ);
-  const camOffset = new THREE.Vector3(
-    -Math.cos(Math.PI / 3) * Math.cos(Math.PI / 4) * CAM_DIST,
-    Math.sin(Math.PI / 3) * CAM_DIST,
-    -Math.cos(Math.PI / 3) * Math.sin(Math.PI / 4) * CAM_DIST,
-  );
-  const desired = focus.clone().add(camOffset);
+    const focus = new THREE.Vector3(this.camFocusX, 0, this.camFocusZ);
+    const camOffset = new THREE.Vector3(
+      -Math.cos(Math.PI / 3) * Math.cos(Math.PI / 4) * CAM_DIST,
+      Math.sin(Math.PI / 3) * CAM_DIST,
+      -Math.cos(Math.PI / 3) * Math.sin(Math.PI / 4) * CAM_DIST,
+    );
+    const desired = focus.clone().add(camOffset);
 
-  if (snap) {
-    this.camera.position.copy(desired);
-  } else {
-    this.camera.position.lerp(desired, CAM_LERP);
+    if (snap) {
+      this.camera.position.copy(desired);
+    } else {
+      this.camera.position.lerp(desired, CAM_LERP);
+    }
+
+    this.camera.lookAt(focus);
   }
-
-  this.camera.lookAt(focus);
-}
 
   private getAspect(): number {
     return this.container.clientWidth / this.container.clientHeight;
